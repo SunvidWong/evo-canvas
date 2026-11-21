@@ -504,6 +504,13 @@ export function formatBytes(bytes: number) {
     return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(bytes / 1024)}KB`;
 }
 
+const CANVAS_READ_TOOLS = new Set(["canvas_get_state", "canvas_get_selection", "canvas_export_snapshot", "canvas_list_projects"]);
+
+/** 会改动画布的 MCP 工具：上层工具（建节点、移动、删除等）在服务端都会转成 canvas_apply_ops 执行。 */
+export function isCanvasMutationTool(name: string) {
+    return name.startsWith("canvas_") && !CANVAS_READ_TOOLS.has(name);
+}
+
 export function isCanvasWriteTool(name: string) {
     return name === "canvas_apply_ops" || name === "canvas_create_attachment_nodes";
 }

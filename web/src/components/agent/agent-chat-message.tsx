@@ -10,7 +10,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentStore, type AgentCanvasReference, type AgentPendingApproval, type AgentSkillReference } from "@/stores/use-agent-store";
 import { resolveAgentMessageAssetUrl, revealAgentLocalFile } from "@/services/api/canvas-agent";
 import { AgentCanvasReferencePreview, canvasReferenceIcon, canvasReferenceKindLabel } from "./agent-canvas-reference-preview";
-import { isCanvasWriteTool } from "./agent-event-formatters";
+import { isCanvasMutationTool } from "./agent-event-formatters";
 import { agentInlineTokenClass, agentInlineTokenIconClass, agentInlineTokenMediaClass, agentReferenceMarker, parseAgentInlineTokens } from "./agent-chat-inline-tokens";
 
 const streamdownProps = () => ({
@@ -257,7 +257,7 @@ export function AgentToolCard({ itemId, title, text, detail, theme }: { itemId?:
                 <span className="shrink-0" style={{ color: state.color }}>{toolIcon(kind, state.icon)}</span>
                 <span className="min-w-0 truncate font-medium">{title}</span>
                 <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
-                {itemId && isCanvasWriteTool(String(objectField(detail, "tool") || "")) && objectField(detail, "status") === "completed" ? <AgentCanvasUndoButton itemId={itemId} theme={theme} /> : null}
+                {itemId && isCanvasMutationTool(String(objectField(detail, "tool") || "")) && objectField(detail, "status") === "completed" ? <AgentCanvasUndoButton itemId={itemId} theme={theme} /> : null}
                 {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
             </div>
             {showText ? (

@@ -14,10 +14,9 @@ import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
 import { SkillStore, SkillStoreError } from "../skills/store.js";
 
-/** 启动仅监听本机的 Canvas Agent HTTP 服务；resetToken 为 true 时生成新的连接 token，旧 token 立即失效。 */
+/** 启动仅监听本机的 Canvas Agent HTTP 服务；resetToken 为 true 时在端口监听成功后生成并保存新的连接 token，旧 token 随即失效。 */
 export function startHttpServer({ resetToken = false } = {}) {
     const config = loadConfig(true);
-    if (resetToken) config.token = createToken();
     const port = Number(process.env.PORT) || Number(new URL(config.url).port) || DEFAULT_PORT;
     config.url = `http://127.0.0.1:${port}`;
     saveConfig(config);
@@ -432,7 +431,17 @@ export function startHttpServer({ resetToken = false } = {}) {
         res.status(500).json({ ok: false, error: error.message });
     });
 
-    app.listen(port, "127.0.0.1", () => {
+    // Express 5 监听失败（如端口被占用）时也会调用这个回调并传入错误。
+    app.listen(port, "127.0.0.1", (error?: Error) => {
+        if (error) {
+            console.error(`Canvas Agent failed to listen on ${config.url}: ${error.message}`);
+            process.exit(1);
+        }
+        // 监听成功后才换 token，避免旧实例仍用旧 token、磁盘上却已换成新 token。
+        if (resetToken) {
+            config.token = createToken();
+            saveConfig(config);
+        }
         console.log("Infinite Canvas Agent");
         checkVersions();
         console.log(`Local URL: ${config.url}`);
