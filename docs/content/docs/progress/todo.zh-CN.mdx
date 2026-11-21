@@ -5,7 +5,34 @@ description: 当前项目后续值得处理的事项
 
 # TODO
 
-本文档用来记录当前项目后续比较值得处理的事项。
+本文档用来记录当前项目后续比较值得处理的事项，按里程碑排列。标「待确认」的事项需要先定方案再开工。
 
-- 本地 Agent 接入后续：按[本地 Agent 接入规划](/zh-CN/docs/progress/local-agent-integration-plan)把 Claude Code CLI Adapter 升级为 Claude Agent SDK Adapter，并完善工具队列体验。
-- Agent Skill 后续：补充网络检索安装、Skill 资源文件管理和可控的本地记忆沉淀。
+## M1 快速收尾
+
+- Agent 工具操作撤销入口：`use-agent-bridge.ts` 已实现 `undoAgentOps`，但界面没有调用入口；在对话的 `canvas_apply_ops` 工具结果卡片上加「撤销本次操作」，只对最近一次可用。待确认：是否并入画布 Ctrl+Z 撤销栈。
+- Docker 静态资源路径验证：本地构建镜像后检查插件、图标、`config.js` 和深层路由刷新，通过后删除 `AGENTS.md` 中对应提醒。待确认：是否需要支持子路径部署（`VITE_BASE`）。
+
+## M2 Claude 接入
+
+按[本地 Agent 接入规划](/zh-CN/docs/progress/local-agent-integration-plan)第三阶段，依次完成：
+
+- 把 Claude Code CLI Adapter 升级为 Claude Agent SDK Adapter，支持会话续用、中断，并注入 `infinite-canvas` MCP。
+- 把 Claude 的消息和工具调用统一成与 Codex 相同的结构化事件，按 `threadId`、`turnId`、`itemId` 归属，复用现有历史与消息元数据存储。
+- 侧边栏增加 Codex / Claude 类型选择（当前前端没有调用 `/agent/claude/turn`）。待确认：两种 Agent 的会话历史合并还是分开显示。
+
+## M3 Agent 体验
+
+- 批量工具队列：手动确认模式下把单个 `pendingTool` 改为队列，支持全部批准、全部拒绝和逐条处理，按顺序执行，Codex 与 Claude 共用。待确认：队列上限和等待超时。
+- 常用画布动作模板：在 Agent 输入框提供预置模板并自动带上选中节点引用，支持自定义模板。待确认：是否直接用 Skill 代替。
+
+## M4 Agent Skill
+
+- 网络检索安装 Skill：从 GitHub 等来源下载、校验 `SKILL.md`、预览后写入 `.agents/skills`，复用现有路径校验。待确认：支持的来源和下载大小上限。
+- Skill 资源文件管理：在 Skill 详情中查看、上传、删除脚本和参考文件，不能写出 Skill 目录。
+- 可控的本地记忆沉淀：Agent 提议、用户确认后才写入，可查看、编辑、删除，可按开关注入对话。待确认：记忆全局共享还是按画布分开。
+
+## 其他待确认
+
+- Canvas Agent 连接 token 更新：token 已持久化在 `~/.infinite-canvas/canvas-agent.json`，建议只加 `--reset-token` 启动参数。
+- 移动端触控优化是否纳入计划。
+- 剩余业务模块（WebDAV 报错、提示词来源等）的翻译补全是否纳入计划。
