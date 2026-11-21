@@ -18,10 +18,15 @@ export function loadConfig(create = false): CanvasAgentConfig {
     try {
         return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) as CanvasAgentConfig;
     } catch {
-        const config = { url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`, token: crypto.randomBytes(18).toString("hex") };
+        const config = { url: `http://127.0.0.1:${Number(process.env.PORT) || DEFAULT_PORT}`, token: createToken() };
         if (create) saveConfig(config);
         return config;
     }
+}
+
+/** 生成新的网页连接 token。 */
+export function createToken() {
+    return crypto.randomBytes(18).toString("hex");
 }
 
 /** 将 Canvas Agent 配置写入用户配置目录。 */

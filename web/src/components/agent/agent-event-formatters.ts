@@ -53,7 +53,7 @@ export type AgentEventItem = {
     savedPath?: unknown;
     revisedPrompt?: unknown;
 };
-export type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
+export type AgentUserDetail = { kind: string; status: string; tool?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
 
 export type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
 
@@ -353,11 +353,11 @@ function isMcpToolItem(item?: AgentEventItem): item is AgentEventItem & { type: 
 
 export function toolDetail(item: AgentEventItem | undefined, status: string): AgentUserDetail {
     const name = String(item?.tool || "");
-    return { kind: "tool", status, rows: toolInputRows(name, item?.arguments), ...(item?.error?.message ? { output: item.error.message } : {}) };
+    return { kind: "tool", status, tool: name, rows: toolInputRows(name, item?.arguments), ...(item?.error?.message ? { output: item.error.message } : {}) };
 }
 
 export function toolCallDetail(name: string, input: unknown, status: string, error = ""): AgentUserDetail {
-    return { kind: "tool", status, rows: toolInputRows(name, input), ...(error ? { output: error } : {}) };
+    return { kind: "tool", status, tool: name, rows: toolInputRows(name, input), ...(error ? { output: error } : {}) };
 }
 
 function toolInputRows(name: string, input: unknown) {

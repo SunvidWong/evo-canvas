@@ -7,11 +7,6 @@ description: 当前项目后续值得处理的事项
 
 本文档用来记录当前项目后续比较值得处理的事项，按里程碑排列。标「待确认」的事项需要先定方案再开工。
 
-## M1 快速收尾
-
-- Agent 工具操作撤销入口：`use-agent-bridge.ts` 已实现 `undoAgentOps`，但界面没有调用入口；在对话的 `canvas_apply_ops` 工具结果卡片上加「撤销本次操作」，只对最近一次可用。待确认：是否并入画布 Ctrl+Z 撤销栈。
-- Docker 静态资源路径验证：本地构建镜像后检查插件、图标、`config.js` 和深层路由刷新，通过后删除 `AGENTS.md` 中对应提醒。待确认：是否需要支持子路径部署（`VITE_BASE`）。
-
 ## M2 Claude 接入
 
 按[本地 Agent 接入规划](/zh-CN/docs/progress/local-agent-integration-plan)第三阶段，依次完成：
@@ -33,6 +28,7 @@ description: 当前项目后续值得处理的事项
 
 ## 其他待确认
 
-- Canvas Agent 连接 token 更新：token 已持久化在 `~/.infinite-canvas/canvas-agent.json`，建议只加 `--reset-token` 启动参数。
+- Agent 撤销是否并入画布 Ctrl+Z 撤销栈：目前两者独立，Agent 撤销只在工具卡片上触发。
+- 是否需要子路径部署（`VITE_BASE`）：插件清单、模型图标等仍按根路径 `/` 请求，子路径部署需要一起改。
 - 移动端触控优化是否纳入计划。
 - 剩余业务模块（WebDAV 报错、提示词来源等）的翻译补全是否纳入计划。

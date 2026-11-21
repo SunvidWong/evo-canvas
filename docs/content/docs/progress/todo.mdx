@@ -7,11 +7,6 @@ description: Planned follow-up work
 
 Follow-up work, grouped by milestone. Items marked "To confirm" need a decision before work starts.
 
-## M1 Quick wins
-
-- Undo entry for Agent tool operations: `use-agent-bridge.ts` already implements `undoAgentOps`, but nothing in the UI calls it. Add an "Undo this change" button to the `canvas_apply_ops` tool result card, available for the latest change only. To confirm: whether it should join the canvas Ctrl+Z history.
-- Verify Docker static asset paths: build the image locally and check plugins, icons, `config.js` and deep-route refreshes, then remove the related note from `AGENTS.md`. To confirm: whether sub-path deployment (`VITE_BASE`) is needed.
-
 ## M2 Claude support
 
 Following phase three of the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan):
@@ -33,6 +28,7 @@ Following phase three of the [Local Agent Integration Plan](/docs/progress/local
 
 ## Other items to confirm
 
-- Canvas Agent token reset: the token is already persisted in `~/.infinite-canvas/canvas-agent.json`; suggest only adding a `--reset-token` startup flag.
+- Whether Agent undo should join the canvas Ctrl+Z history: they are separate today, and Agent undo is triggered only from the tool card.
+- Whether sub-path deployment (`VITE_BASE`) is needed: the plugin manifest and model icons are still requested from the root path `/`, so sub-path support needs those changed too.
 - Whether mobile touch improvements join the plan.
 - Whether to finish translating the remaining modules (WebDAV errors, prompt sources, etc.).

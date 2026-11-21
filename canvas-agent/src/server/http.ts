@@ -9,14 +9,15 @@ import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-pr
 import { messageMetadataStore } from "../agent/message-metadata.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
-import { DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
+import { createToken, DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type CanvasAgentConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
 import { SkillStore, SkillStoreError } from "../skills/store.js";
 
-/** 启动仅监听本机的 Canvas Agent HTTP 服务。 */
-export function startHttpServer() {
+/** 启动仅监听本机的 Canvas Agent HTTP 服务；resetToken 为 true 时生成新的连接 token，旧 token 立即失效。 */
+export function startHttpServer({ resetToken = false } = {}) {
     const config = loadConfig(true);
+    if (resetToken) config.token = createToken();
     const port = Number(process.env.PORT) || Number(new URL(config.url).port) || DEFAULT_PORT;
     config.url = `http://127.0.0.1:${port}`;
     saveConfig(config);
@@ -435,7 +436,7 @@ export function startHttpServer() {
         console.log("Infinite Canvas Agent");
         checkVersions();
         console.log(`Local URL: ${config.url}`);
-        console.log(`Connect token: ${config.token}`);
+        console.log(`Connect token: ${config.token}${resetToken ? " (reset; reconnect the canvas with this new token)" : ""}`);
         console.log("Codex MCP is not installed by this command.");
         console.log("Optional MCP add: codex mcp add infinite-canvas -- npx -y @basketikun/canvas-agent@latest mcp");
         console.log("Remove manually added MCP: codex mcp remove infinite-canvas");
