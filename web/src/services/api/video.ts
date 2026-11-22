@@ -6,8 +6,9 @@ import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { clampVideoSeconds, computeVideoSize, inferVideoRatio } from "@/lib/media-size";
 import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
-import { boolConfig, buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { apiFormatName, boolConfig, buildApiUrl, channelNeedsApiKey, resolveModelWorkflow, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { generateComfyVideo } from "./comfyui";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -75,6 +76,11 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
     assertVideoConfig(requestConfig, requestConfig.model);
+    if (requestConfig.apiFormat === "anthropic" || (requestConfig.apiFormat === "comfyui" && !resolveModelWorkflow(config, selectedModel))) {
+        if (requestConfig.apiFormat === "comfyui") throw new Error(apiText("comfyWorkflowMissing", { model: requestConfig.model }));
+        throw new Error(apiText("protocolCapabilityUnsupported", { protocol: apiFormatName(requestConfig.apiFormat), capability: i18n.t("config.channelEditor.capabilities.video") }));
+    }
+    if (requestConfig.apiFormat === "comfyui") return createComfyVideoTask(requestConfig, selectedModel, resolveModelWorkflow(config, selectedModel), prompt, references, options);
     if (requestConfig.apiFormat === "gemini") return createGeminiVideoTask(requestConfig, selectedModel, prompt, references, options);
     return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
 }
@@ -92,7 +98,7 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (channelNeedsApiKey(config) && !config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
     const videos = await Promise.all((options?.videos || []).map((video) => referenceMediaToFile(video, "ref.mp4", "invalidReferenceVideo", options)));
     const audios = await Promise.all((options?.audios || []).map((audio) => referenceMediaToFile(audio, "ref.mp3", "invalidReferenceAudio", options)));
@@ -119,6 +125,17 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
     );
     const id = nanoid();
     pluginVideoResults.set(id, result);
+    return { id, provider: "plugin", model };
+}
+
+/** ComfyUI 工作流同步跑完，结果和调用脚本一样先放在内存里，再按任务 id 取。 */
+async function createComfyVideoTask(config: AiConfig, model: string, workflow: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
+    const size = normalizeVideoSize(config.size, config.vquality);
+    const [width, height] = size ? size.split("x").map(Number) : [];
+    const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
+    const blob = await generateComfyVideo(config, workflow, { prompt, width: width || undefined, height: height || undefined, seconds: Number(normalizeVideoSeconds(config.videoSeconds)) || undefined, references: refs }, options);
+    const id = nanoid();
+    pluginVideoResults.set(id, { blob });
     return { id, provider: "plugin", model };
 }
 
@@ -267,7 +284,7 @@ async function pollGeminiVideoTask(config: AiConfig, task: VideoGenerationTask, 
 function assertVideoConfig(config: AiConfig, model: string) {
     if (!model) throw new Error(apiText("videoModelRequired"));
     if (!config.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
-    if (!config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
+    if (channelNeedsApiKey(config) && !config.apiKey.trim()) throw new Error(apiText("apiKeyRequired"));
 }
 
 function geminiVideoBaseUrl(config: Pick<AiConfig, "baseUrl">) {

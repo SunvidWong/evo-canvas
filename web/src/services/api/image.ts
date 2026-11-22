@@ -1,8 +1,11 @@
 import axios from "axios";
 
 import i18n from "@/i18n";
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { apiFormatName, buildApiUrl, resolveModelRequestConfig, resolveModelScript, resolveModelWorkflow, withLocalProxy, type AiConfig, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
+import { fetchAnthropicModels, requestAnthropicMessage } from "./anthropic";
+import { generateComfyImages } from "./comfyui";
+import { openAICompatibleHeaders, requestChatCompletion } from "./openai-chat";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
@@ -315,10 +318,29 @@ function aiApiUrl(config: AiConfig, path: string) {
 }
 
 function aiHeaders(config: AiConfig, contentType?: string) {
-    return {
-        Authorization: `Bearer ${config.apiKey}`,
-        ...(contentType ? { "Content-Type": contentType } : {}),
-    };
+    return openAICompatibleHeaders(config.apiKey, contentType);
+}
+
+/** 当前协议不支持这种能力时的报错。 */
+export function protocolUnsupportedError(config: Pick<AiConfig, "apiFormat">, capability: ModelCapability) {
+    return new Error(apiText("protocolCapabilityUnsupported", { protocol: apiFormatName(config.apiFormat), capability: i18n.t(`config.channelEditor.capabilities.${capability}`) }));
+}
+
+/** Anthropic 不能生图；ComfyUI 按模型配置的工作流出图。其余协议返回 null，走原有逻辑。 */
+async function requestProtocolImages(config: AiConfig, requestConfig: AiConfig, prompt: string, references: ReferenceImage[], count: number, options?: RequestOptions) {
+    if (requestConfig.apiFormat === "anthropic") throw protocolUnsupportedError(requestConfig, "image");
+    if (requestConfig.apiFormat !== "comfyui") return null;
+    const workflow = resolveModelWorkflow(config, config.model || config.imageModel);
+    if (!workflow) throw new Error(apiText("comfyWorkflowMissing", { model: requestConfig.model }));
+    const size = resolveRequestSize(config.size);
+    const [width, height] = size ? size.split("x").map(Number) : [];
+    try {
+        const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
+        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, prompt), width, height, count, references: refs }, options);
+        return images.map((dataUrl) => ({ id: nanoid(), dataUrl }));
+    } catch (error) {
+        throw new Error(readAxiosError(error, apiText("requestFailed")));
+    }
 }
 
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
@@ -714,6 +736,8 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    const protocolImages = await requestProtocolImages(config, requestConfig, prompt, [], n, options);
+    if (protocolImages) return protocolImages;
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, prompt, [], n, options);
@@ -776,6 +800,8 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    const protocolImages = await requestProtocolImages(config, requestConfig, prompt, references, n, options);
+    if (protocolImages) return protocolImages;
     if (requestConfig.apiFormat === "gemini") {
         try {
             return await requestGeminiImages(requestConfig, requestPrompt, references, n, options);
@@ -838,7 +864,14 @@ export async function requestImageQuestion(config: AiConfig, messages: AiTextMes
             throw new Error(readAxiosError(error, apiText("requestFailed")));
         }
     }
+    if (requestConfig.apiFormat === "comfyui") throw protocolUnsupportedError(requestConfig, "text");
     try {
+        if (requestConfig.apiFormat === "anthropic" || requestConfig.apiFormat === "openai-chat") {
+            const request = requestConfig.apiFormat === "anthropic" ? requestAnthropicMessage : requestChatCompletion;
+            const answer = (await request(requestConfig, withSystemMessage(requestConfig, messages) as AiTextMessage[], onDelta, options)) || apiText("noContent");
+            if (answer === apiText("noContent")) onDelta(answer);
+            return answer;
+        }
         if (requestConfig.apiFormat === "gemini") {
             const answer = (await requestGeminiStreamingResponse(requestConfig, toGeminiBody(requestConfig, messages), onDelta, options)).content || apiText("noContent");
             if (answer === apiText("noContent")) onDelta(answer);
@@ -866,10 +899,10 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
+        if (config.apiFormat === "anthropic") return await fetchAnthropicModels(config);
+        if (config.apiFormat === "comfyui") throw new Error(apiText("comfyNoModelList"));
         const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-            },
+            headers: openAICompatibleHeaders(config.apiKey),
         });
         return (response.data.data || [])
             .map((model) => model.id)

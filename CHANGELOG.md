@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [新增] 渠道支持更多协议和厂商预设：新增 OpenAI 兼容（Chat Completions）、Anthropic（Claude）和 ComfyUI 工作流协议，可一键选择 DeepSeek、通义、豆包、Kimi、智谱、OpenRouter 等厂商以及 Ollama、LM Studio、vLLM、llama.cpp、ComfyUI 等本地服务；本机和局域网地址可不填 API Key，已带版本号的接口地址不再追加 /v1。
 + [新增] 画布支持手机和平板触控：单指拖动平移、双指缩放、拖动节点和连线、长按弹出右键菜单；手机宽度下侧边栏和 Agent 面板改为浮层，顶栏、底部工具栏和节点工具条适配窄屏。
 + [新增] 支持部署在子路径：构建时设置 `VITE_BASE`（Docker 用 `--build-arg VITE_BASE=/路径/`），路由、Logo、模型图标和插件清单都会带上部署路径。
 + [修复] Agent 工具卡片的「撤销本次操作」在画布之后又被改动时不再可用，避免覆盖后来的改动；Agent 的画布操作可直接用 Ctrl/Cmd+Z 撤销。

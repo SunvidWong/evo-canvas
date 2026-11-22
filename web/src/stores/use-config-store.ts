@@ -5,7 +5,16 @@ import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
 
-export type ApiCallFormat = "openai" | "gemini";
+/**
+ * 渠道协议：
+ * - openai：OpenAI 官方接口（文本走 /v1/responses）
+ * - openai-chat：OpenAI 兼容接口（文本走 /chat/completions，适合 DeepSeek、通义、Kimi、Ollama 等）
+ * - anthropic：Anthropic Messages 接口（Claude，只支持文本）
+ * - gemini：Google Gemini 接口
+ * - comfyui：ComfyUI 工作流（每个模型对应一份 API 格式工作流）
+ */
+export type ApiCallFormat = "openai" | "openai-chat" | "anthropic" | "gemini" | "comfyui";
+export const API_CALL_FORMATS: ApiCallFormat[] = ["openai", "openai-chat", "anthropic", "gemini", "comfyui"];
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 
@@ -13,6 +22,8 @@ export type ChannelModel = {
     name: string;
     capability: ModelCapability;
     script?: string;
+    /** ComfyUI 渠道的 API 格式工作流 JSON。 */
+    workflow?: string;
 };
 
 export type ModelChannel = {
@@ -76,6 +87,8 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 const CHANNEL_MODEL_SEPARATOR = "::";
 const OPENAI_BASE_URL = "https://api.openai.com";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const COMFYUI_BASE_URL = "http://127.0.0.1:8188";
 export const LOCAL_PROXY_PACKAGE = "@basketikun/canvas-proxy";
 export const DEFAULT_LOCAL_PROXY_URL = "http://127.0.0.1:23210";
 
@@ -207,9 +220,40 @@ export function resolveModelScript(config: AiConfig, value: string) {
     return findChannelModel(config, value)?.model.script?.trim() || "";
 }
 
+/** ComfyUI 渠道里模型对应的工作流 JSON；不是 ComfyUI 模型时返回空字符串。 */
+export function resolveModelWorkflow(config: AiConfig, value: string) {
+    const match = findChannelModel(config, value);
+    return match?.channel.apiFormat === "comfyui" ? match.model.workflow?.trim() || "" : "";
+}
+
+/** 本机或局域网地址（Ollama、LM Studio、vLLM、ComfyUI 等本地服务），通常不需要 API Key。 */
+export function isLocalBaseUrl(baseUrl: string) {
+    let hostname = "";
+    try {
+        hostname = new URL(baseUrl.trim()).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    } catch {
+        return false;
+    }
+    if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname === "::1") return true;
+    const parts = hostname.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    const [a, b] = parts;
+    return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
+
+/** 渠道是否必须填写 API Key：ComfyUI 和本机/局域网地址可以不填。 */
+export function channelNeedsApiKey(channel: Pick<ModelChannel, "baseUrl" | "apiFormat">) {
+    return channel.apiFormat !== "comfyui" && !isLocalBaseUrl(channel.baseUrl);
+}
+
+/** 渠道的地址和（需要时的）API Key 是否都已填写。 */
+export function hasChannelCredentials(channel: Pick<ModelChannel, "baseUrl" | "apiFormat" | "apiKey">) {
+    return Boolean(channel.baseUrl.trim()) && (Boolean(channel.apiKey.trim()) || !channelNeedsApiKey(channel));
+}
+
 function isAiConfigReady(config: AiConfig, model: string) {
     const match = findChannelModel(config, model);
-    return Boolean(match && match.channel.baseUrl.trim() && match.channel.apiKey.trim());
+    return Boolean(match && hasChannelCredentials(match.channel));
 }
 
 export const useConfigStore = create<ConfigStore>()(
@@ -306,7 +350,8 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const workflow = typeof item === "string" ? undefined : item.workflow?.trim() || undefined;
+        result.push({ name, capability, script, ...(workflow ? { workflow } : {}) });
     }
     return result;
 }
@@ -471,13 +516,20 @@ function normalizeChannels(config: AiConfig) {
     return channels;
 }
 
+/** 协议在界面上的名称。 */
+export function apiFormatName(apiFormat: ApiCallFormat) {
+    return i18n.t(`config.channelEditor.protocols.${apiFormat}`);
+}
+
 export function defaultBaseUrlForApiFormat(apiFormat: ApiCallFormat) {
     if (apiFormat === "gemini") return GEMINI_BASE_URL;
+    if (apiFormat === "anthropic") return ANTHROPIC_BASE_URL;
+    if (apiFormat === "comfyui") return COMFYUI_BASE_URL;
     return OPENAI_BASE_URL;
 }
 
 function normalizeApiFormat(apiFormat: unknown): ApiCallFormat {
-    return apiFormat === "gemini" ? apiFormat : "openai";
+    return API_CALL_FORMATS.includes(apiFormat as ApiCallFormat) ? (apiFormat as ApiCallFormat) : "openai";
 }
 
 function uniqueModelOptions(models: string[]) {
@@ -487,7 +539,8 @@ function uniqueModelOptions(models: string[]) {
 export function buildApiUrl(baseUrl: string, path: string) {
     const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
-    const apiBaseUrl = lowerBaseUrl.endsWith("/v1") ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
+    // 已经带版本号的地址（如 /v1、智谱 /api/paas/v4、火山方舟 /api/v3）不再追加 /v1。
+    const apiBaseUrl = /\/v\d+$/.test(lowerBaseUrl) ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
     return withLocalProxy(`${apiBaseUrl}${path}`);
 }
 
