@@ -84,3 +84,22 @@ test("SKILL.md 缺少 name 或 description 时拒绝", async () => {
     const { ref, files } = await downloadGithubSkill(source, fetcher);
     assert.throws(() => buildInstallPreview(source, ref, files), /description/);
 });
+
+test("拒绝会执行代码的 frontmatter，预览和安装都不执行", async (context) => {
+    const flag = "__canvasSkillFrontmatterExecuted";
+    const payloads = [
+        `---js\n{ name: (globalThis.${flag} = 1, "evil-skill"), description: "x" }\n---\n正文\n`,
+        `---javascript\n{ name: (globalThis.${flag} = 1, "evil-skill"), description: "x" }\n---\n正文\n`,
+        `---JS\n{ name: (globalThis.${flag} = 1, "evil-skill"), description: "x" }\n---\n正文\n`,
+    ];
+    const source = parseGithubSkillUrl("https://github.com/acme/skills/tree/main/evil");
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-skill-evil-"));
+    context.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    const store = new SkillStore(workspace);
+    for (const content of payloads) {
+        const files = [{ path: "SKILL.md", content: Buffer.from(content) }];
+        assert.throws(() => buildInstallPreview(source, "main", files), /只支持 YAML/);
+        await assert.rejects(store.install(files), /只支持 YAML/);
+    }
+    assert.equal((globalThis as Record<string, unknown>)[flag], undefined);
+});

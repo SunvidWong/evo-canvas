@@ -242,7 +242,12 @@ export class SkillStore {
         return this.mutate(async () => {
             const skillFile = files.find((item) => item.path === "SKILL.md");
             if (!skillFile) throw new SkillStoreError("该目录下没有 SKILL.md", 400);
-            const parsed = matter(skillFile.content.toString("utf8"));
+            let parsed: matter.GrayMatterFile<string>;
+            try {
+                parsed = parseSkillMarkdown(skillFile.content.toString("utf8"));
+            } catch {
+                throw new SkillStoreError("SKILL.md frontmatter 格式无效，只支持 YAML", 400);
+            }
             const name = skillName(parsed.data.name);
             skillDescription(parsed.data.description);
             skillInstructions(parsed.content);
@@ -441,11 +446,27 @@ function serializeSkill(frontmatter: Record<string, unknown>, instructions: stri
     return matter.stringify(`${instructions.trim()}\n`, frontmatter);
 }
 
+const BLOCKED_FRONTMATTER_ENGINE = {
+    parse: () => {
+        throw new Error("SKILL.md 只支持 YAML frontmatter");
+    },
+};
+
+/**
+ * 解析 SKILL.md。gray-matter 会按 `---js` 等语言标记选择引擎，内置的 JavaScript 引擎会执行 frontmatter，
+ * 所以只接受 YAML，其他语言标记一律拒绝，并把 JavaScript 引擎替换成直接报错。
+ */
+export function parseSkillMarkdown(raw: string) {
+    const language = matter.language(raw).name.trim().toLowerCase();
+    if (language && language !== "yaml" && language !== "yml") throw new Error("SKILL.md 只支持 YAML frontmatter");
+    return matter(raw, { language: "yaml", engines: { javascript: BLOCKED_FRONTMATTER_ENGINE, js: BLOCKED_FRONTMATTER_ENGINE } });
+}
+
 async function readSkill(filePath: string, expectedName: string): Promise<SkillDocument> {
     const raw = await fs.readFile(filePath, "utf8");
     let parsed: matter.GrayMatterFile<string>;
     try {
-        parsed = matter(raw);
+        parsed = parseSkillMarkdown(raw);
     } catch {
         throw new SkillStoreError("SKILL.md frontmatter 格式无效", 409);
     }

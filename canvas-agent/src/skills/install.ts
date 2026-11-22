@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 
-import matter from "gray-matter";
+import type matter from "gray-matter";
 
-import { SkillStoreError } from "./store.js";
+import { parseSkillMarkdown, SkillStoreError } from "./store.js";
 
 /** 用户确认的网络安装边界（2026-11-22）：只支持 GitHub；单个 Skill 最多 50 个文件、单文件 1MB、合计 5MB，下载 30 秒超时。 */
 export const SKILL_INSTALL_LIMITS = { maxFiles: 50, maxFileBytes: 1024 * 1024, maxTotalBytes: 5 * 1024 * 1024, timeoutMs: 30_000 } as const;
@@ -76,9 +76,9 @@ export function buildInstallPreview(source: GithubSkillSource, ref: string, file
     if (!skillFile) throw new SkillStoreError("该目录下没有 SKILL.md", 400);
     let parsed: matter.GrayMatterFile<string>;
     try {
-        parsed = matter(skillFile.content.toString("utf8"));
+        parsed = parseSkillMarkdown(skillFile.content.toString("utf8"));
     } catch {
-        throw new SkillStoreError("SKILL.md frontmatter 格式无效", 400);
+        throw new SkillStoreError("SKILL.md frontmatter 格式无效，只支持 YAML", 400);
     }
     const name = typeof parsed.data.name === "string" ? parsed.data.name : "";
     const description = typeof parsed.data.description === "string" ? parsed.data.description.trim() : "";
