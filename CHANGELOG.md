@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [新增] Agent 侧边栏可在 Codex 和 Claude 之间切换；Claude 通过 Claude Agent SDK 接入，复用画布工具、手动确认、撤销和历史记录，两种 Agent 的会话历史分开保存。
 + [新增] Agent 写入画布的工具卡片新增「撤销本次操作」按钮，可撤销最近一次 Agent 画布操作。
 + [修复] Docker 部署下直接刷新「我的资产」页面不再返回 403，缺失的脚本和插件文件返回 404 而不是首页。
 + [新增] Canvas Agent 新增 `--reset-token` 启动参数，用于重新生成连接 token。

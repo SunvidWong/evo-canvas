@@ -38,6 +38,8 @@ export type AgentConversationState = {
     error?: string;
 };
 export type AgentPanelTab = "chat" | "setup" | "history" | "skills" | "log";
+/** 本地 Agent 类型，两种 Agent 的会话历史分开保存。 */
+export type AgentKind = "codex" | "claude";
 
 const CONNECT_TIMEOUT_MS = 6000;
 let agentSource: EventSource | null = null;
@@ -51,6 +53,7 @@ type AgentStore = {
     canvasContext: AgentCanvasContext | null;
     /** Chat tool card that the current canvas undo snapshot belongs to; empty when no card can undo. */
     canvasUndoItemId: string;
+    agentKind: AgentKind;
     url: string;
     token: string;
     connected: boolean;
@@ -104,6 +107,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     panelClosing: false,
     canvasContext: null,
     canvasUndoItemId: "",
+    agentKind: "codex",
     url: typeof window === "undefined" ? "http://127.0.0.1:17371" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371",
     token: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-token") || "",
     connected: false,

@@ -1,11 +1,11 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Button, Dropdown, Tooltip } from "antd";
-import { ArrowUp, Check, ChevronUp, Cpu, Gauge, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
+import { ArrowUp, Bot, Check, ChevronUp, Cpu, Gauge, Hand, ImagePlus, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, ShieldOff, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { canvasThemes } from "@/lib/canvas-theme";
-import { useAgentStore, type AgentModel, type AgentPermissionMode, type AgentReasoningEffort } from "@/stores/use-agent-store";
+import { useAgentStore, type AgentKind, type AgentModel, type AgentPermissionMode, type AgentReasoningEffort } from "@/stores/use-agent-store";
 import type { AgentChatAttachment } from "./agent-chat-message";
 import { AgentChatPromptInput } from "./agent-chat-prompt-input";
 
@@ -13,6 +13,7 @@ export function AgentChatComposer({
     prompt,
     attachments = [],
     disabled,
+    agentKindDisabled,
     sending,
     placeholder,
     theme,
@@ -23,6 +24,8 @@ export function AgentChatComposer({
     onRemoveAttachment,
     confirmTools,
     onConfirmToolsChange,
+    agentKind,
+    onAgentKindChange,
     permissionMode,
     onPermissionModeChange,
     models,
@@ -35,6 +38,7 @@ export function AgentChatComposer({
     prompt: string;
     attachments?: AgentChatAttachment[];
     disabled?: boolean;
+    agentKindDisabled?: boolean;
     sending?: boolean;
     placeholder: string;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
@@ -45,6 +49,8 @@ export function AgentChatComposer({
     onRemoveAttachment?: (id: string) => void;
     confirmTools?: boolean;
     onConfirmToolsChange?: (confirmTools: boolean) => void;
+    agentKind?: AgentKind;
+    onAgentKindChange?: (kind: AgentKind) => void;
     permissionMode?: AgentPermissionMode;
     onPermissionModeChange?: (permissionMode: AgentPermissionMode) => void;
     models?: AgentModel[];
@@ -89,6 +95,7 @@ export function AgentChatComposer({
                                 </Tooltip>
                             </>
                         ) : null}
+                        {agentKind && onAgentKindChange ? <AgentKindSelect agentKind={agentKind} disabled={agentKindDisabled ?? (disabled || sending)} onChange={onAgentKindChange} /> : null}
                         {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
                         {permissionMode && onPermissionModeChange ? <PermissionModeMenu permissionMode={permissionMode} theme={theme} onChange={onPermissionModeChange} /> : null}
                         {models?.length && model && reasoningEffort && onModelChange && onReasoningEffortChange ? <AgentModelControls models={models} model={model} reasoningEffort={reasoningEffort} onModelChange={onModelChange} onReasoningEffortChange={onReasoningEffortChange} /> : null}
@@ -104,6 +111,30 @@ export function AgentChatComposer({
                 </div>
             </div>
         </div>
+    );
+}
+
+const AGENT_KIND_LABELS: Record<AgentKind, string> = { codex: "Codex", claude: "Claude" };
+
+/** 选择本地 Agent 类型；运行中禁用，避免中途切换。 */
+function AgentKindSelect({ agentKind, disabled, onChange }: { agentKind: AgentKind; disabled?: boolean; onChange: (kind: AgentKind) => void }) {
+    const { t } = useTranslation();
+    const [open, setOpen] = useState(false);
+    return (
+        <Tooltip title={t("agent.composer.agentKind", { agent: AGENT_KIND_LABELS[agentKind] })} placement="top" open={open ? false : undefined}>
+            <span className="inline-flex shrink-0">
+                <Select value={agentKind} open={open} disabled={disabled} onOpenChange={setOpen} onValueChange={(value) => onChange(value as AgentKind)}>
+                    <SelectTrigger hideChevron className="h-9 w-9 min-w-9 justify-center gap-0 rounded-full border-0 bg-transparent px-0 text-xs font-medium shadow-none hover:bg-black/5 focus:ring-0 @min-[520px]:w-auto @min-[520px]:justify-start @min-[520px]:gap-1.5 @min-[520px]:px-2.5 dark:bg-transparent dark:hover:bg-white/10" aria-label={t("agent.composer.selectAgentKind", { agent: AGENT_KIND_LABELS[agentKind] })}>
+                        <Bot className="size-3.5 shrink-0 opacity-70" />
+                        <span className="hidden @min-[520px]:inline">{AGENT_KIND_LABELS[agentKind]}</span>
+                        <ChevronUp className="hidden size-3 opacity-50 @min-[520px]:block" />
+                    </SelectTrigger>
+                    <SelectContent data-canvas-no-zoom position="popper" side="top" align="start" sideOffset={6} className="z-[1200] min-w-32 rounded-xl border border-border/70 bg-popover p-1 shadow-xl">
+                        {(Object.keys(AGENT_KIND_LABELS) as AgentKind[]).map((kind) => <SelectItem key={kind} value={kind}>{AGENT_KIND_LABELS[kind]}</SelectItem>)}
+                    </SelectContent>
+                </Select>
+            </span>
+        </Tooltip>
     );
 }
 
