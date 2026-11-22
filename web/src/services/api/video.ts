@@ -130,6 +130,8 @@ async function createPluginVideoTask(config: AiConfig, model: string, script: st
 
 /** ComfyUI 工作流同步跑完，结果和调用脚本一样先放在内存里，再按任务 id 取。 */
 async function createComfyVideoTask(config: AiConfig, model: string, workflow: string, prompt: string, references: ReferenceImage[], options?: VideoMediaOptions): Promise<VideoGenerationTask> {
+    // 工作流只会绑定参考图；带了参考视频或音频时直接报错，避免用工作流里原有的素材跑出“成功”的结果。
+    if (options?.videos?.length || options?.audios?.length) throw new Error(apiText("comfyMediaReferenceUnsupported"));
     const size = normalizeVideoSize(config.size, config.vquality);
     const [width, height] = size ? size.split("x").map(Number) : [];
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));

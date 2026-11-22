@@ -5,11 +5,11 @@ import type { ChatMessage } from "./openai-chat";
 type RequestOptions = { signal?: AbortSignal };
 type AnthropicContent = { type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string } };
 type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicContent[] };
-type AnthropicEvent = { type?: string; delta?: { type?: string; text?: string }; error?: { message?: string } };
+type AnthropicEvent = { type?: string; delta?: { type?: string; text?: string; stop_reason?: string }; error?: { message?: string } };
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 const ANTHROPIC_VERSION = "2023-06-01";
-/** Messages 接口要求必须给出回复长度上限；取常见模型都支持的值。 */
+/** Messages 接口要求必须给出回复长度上限；取常见模型都支持的值（默认值待用户确认）。到达上限时在回复末尾提示被截断。 */
 export const ANTHROPIC_MAX_TOKENS = 8192;
 
 export function anthropicHeaders(apiKey: string, contentType?: string) {
@@ -61,10 +61,11 @@ async function readError(response: Response) {
     }
 }
 
-/** 从一段 SSE 文本中取出文字增量和错误。 */
+/** 从一段 SSE 文本中取出文字增量、错误和结束原因。 */
 export function parseAnthropicEvents(block: string) {
     let text = "";
     let error = "";
+    let stopReason = "";
     for (const line of block.split(/\r?\n/)) {
         if (!line.startsWith("data:")) continue;
         let event: AnthropicEvent;
@@ -75,8 +76,9 @@ export function parseAnthropicEvents(block: string) {
         }
         if (event.type === "error") error ||= event.error?.message || apiText("requestFailed");
         if (event.type === "content_block_delta" && event.delta?.type === "text_delta") text += event.delta.text || "";
+        if (event.type === "message_delta" && event.delta?.stop_reason) stopReason = event.delta.stop_reason;
     }
-    return { text, error };
+    return { text, error, stopReason };
 }
 
 /** 通过 Anthropic Messages 接口流式生成文本。 */
@@ -93,9 +95,11 @@ export async function requestAnthropicMessage(config: AiConfig, messages: ChatMe
     const decoder = new TextDecoder();
     let buffer = "";
     let text = "";
+    let stopReason = "";
     const consume = (block: string) => {
         const result = parseAnthropicEvents(block);
         if (result.error) throw new Error(result.error);
+        if (result.stopReason) stopReason = result.stopReason;
         if (result.text) {
             text += result.text;
             onDelta?.(text);
@@ -111,6 +115,10 @@ export async function requestAnthropicMessage(config: AiConfig, messages: ChatMe
     }
     buffer += decoder.decode();
     if (buffer.trim()) consume(buffer);
+    if (stopReason === "max_tokens") {
+        text += `\n\n${apiText("anthropicMaxTokens", { limit: ANTHROPIC_MAX_TOKENS })}`;
+        onDelta?.(text);
+    }
     return text;
 }
 

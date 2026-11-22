@@ -71,7 +71,8 @@ describe("文本流解析", () => {
 
     test("Anthropic 增量和消息转换", () => {
         const block = 'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi"}}';
-        expect(parseAnthropicEvents(block)).toEqual({ text: "Hi", error: "" });
+        expect(parseAnthropicEvents(block)).toEqual({ text: "Hi", error: "", stopReason: "" });
+        expect(parseAnthropicEvents('data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}').stopReason).toBe("max_tokens");
         expect(parseAnthropicEvents('data: {"type":"error","error":{"message":"overloaded"}}').error).toBe("overloaded");
         const request = toAnthropicRequest([
             { role: "system", content: "规则" },
