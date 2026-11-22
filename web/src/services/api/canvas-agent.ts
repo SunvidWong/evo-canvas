@@ -64,6 +64,11 @@ export async function postToolResult(endpoint: string, token: string, clientId: 
     await fetchAgentJson(endpoint, token, `/canvas/result?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
+/** 工具请求进入确认队列时暂停 Agent 端超时，批准后恢复计时。 */
+export async function postToolHold(endpoint: string, token: string, clientId: string, requestId: string, held: boolean) {
+    await fetchAgentJson(endpoint, token, `/canvas/hold?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, held }) });
+}
+
 export async function postCodexApproval(endpoint: string, token: string, requestId: string, decision: "accept" | "acceptForSession" | "decline") {
     await fetchAgentJson(endpoint, token, "/agent/codex/approval", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, decision }) });
 }

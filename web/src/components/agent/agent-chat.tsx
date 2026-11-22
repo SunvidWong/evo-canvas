@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
 import { useAgentStore, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
-import { AgentApprovalCard, AgentChatMessage, AgentCommandGroup, AgentPendingToolCard, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
+import { AgentApprovalCard, AgentChatMessage, AgentCommandGroup, AgentPendingToolCard, AgentPendingToolQueueBar, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
 import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
 import { AgentScrollToBottom } from "./agent-scroll-to-bottom";
 
@@ -14,21 +14,21 @@ const historyMessageStyle = { contentVisibility: "auto", containIntrinsicSize: "
 
 export function AgentChatTimeline({
     theme,
-    pendingTool,
+    pendingTools,
     pendingApprovals,
     sending,
     waiting,
-    onRejectTool,
-    onApproveTool,
+    onRejectTools,
+    onApproveTools,
     onApprovalDecision,
 }: {
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    pendingTool: AgentPendingToolCall | null;
+    pendingTools: AgentPendingToolCall[];
     pendingApprovals: AgentPendingApproval[];
     sending: boolean;
     waiting: boolean;
-    onRejectTool: () => void;
-    onApproveTool: () => void;
+    onRejectTools: (requestIds: string[]) => void;
+    onApproveTools: (requestIds: string[]) => void;
     onApprovalDecision: (approval: AgentPendingApproval, decision: "accept" | "acceptForSession" | "decline") => void;
 }) {
     const { t } = useTranslation();
@@ -60,7 +60,7 @@ export function AgentChatTimeline({
     useEffect(() => {
         const frame = requestAnimationFrame(() => (followMessagesRef.current ? scrollToBottom("auto") : updateScrollState()));
         return () => cancelAnimationFrame(frame);
-    }, [messages, pendingApprovals, pendingTool, scrollToBottom, updateScrollState, waiting]);
+    }, [messages, pendingApprovals, pendingTools, scrollToBottom, updateScrollState, waiting]);
     useEffect(() => {
         const content = contentRef.current;
         if (!content) return;
@@ -82,17 +82,26 @@ export function AgentChatTimeline({
                     {timeline.map((entry) => entry.type === "commands"
                         ? <AgentCommandGroupRow key={entry.id} items={entry.items} theme={theme} />
                         : <AgentChatMessageRow key={entry.item.id} item={entry.item} theme={theme} />)}
-                    {pendingTool ? (
-                        <AgentPendingToolCard
-                            summary={summarizeCanvasAgentOps(pendingTool.input?.ops || []) || toolName(pendingTool.name)}
-                            detail={toolCallDetail(pendingTool.name, pendingTool.input, "pending")}
+                    {pendingTools.length > 1 ? (
+                        <AgentPendingToolQueueBar
+                            count={pendingTools.length}
                             theme={theme}
-                            onReject={onRejectTool}
-                            onApprove={onApproveTool}
+                            onRejectAll={() => onRejectTools(pendingTools.map((tool) => tool.requestId))}
+                            onApproveAll={() => onApproveTools(pendingTools.map((tool) => tool.requestId))}
                         />
                     ) : null}
+                    {pendingTools.map((tool) => (
+                        <AgentPendingToolCard
+                            key={tool.requestId}
+                            summary={summarizeCanvasAgentOps(tool.input?.ops || []) || toolName(tool.name)}
+                            detail={toolCallDetail(tool.name, tool.input, "pending")}
+                            theme={theme}
+                            onReject={() => onRejectTools([tool.requestId])}
+                            onApprove={() => onApproveTools([tool.requestId])}
+                        />
+                    ))}
                     {pendingApprovals.map((approval) => <AgentApprovalCard key={approval.requestId} approval={approval} theme={theme} onDecision={(decision) => onApprovalDecision(approval, decision)} />)}
-                    {(sending || waiting || showBootstrap) && !streaming && !pendingTool && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} detail={"detail" in working && typeof working.detail === "string" ? working.detail : undefined} status={showBootstrap ? bootstrapStatus?.status : undefined} mcpStatuses={showBootstrap ? Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item })) : []} activityKey={working.key} theme={theme} /> : null}
+                    {(sending || waiting || showBootstrap) && !streaming && !pendingTools.length && !pendingApprovals.length ? <AgentWorkingMessage text={working.text} detail={"detail" in working && typeof working.detail === "string" ? working.detail : undefined} status={showBootstrap ? bootstrapStatus?.status : undefined} mcpStatuses={showBootstrap ? Object.entries(mcpStartupStatuses).map(([name, item]) => ({ name, ...item })) : []} activityKey={working.key} theme={theme} /> : null}
                 </div>
             </div>
             {showScrollToBottom ? (

@@ -17,7 +17,7 @@ const MCP_PREFIX = `mcp__${CLAUDE_MCP_SERVER}__`;
 type JsonRecord = Record<string, unknown>;
 type ToolItem = { id: string; type: string; server: string; tool: string; arguments: unknown; status: string; result?: unknown; error?: { message: string } };
 type HistoryItem = JsonRecord & { id: string; type: string };
-type HistoryTurn = { id: string; status: string; items: HistoryItem[]; error?: { message: string } };
+type HistoryTurn = { id: string; status: string; items: HistoryItem[]; error?: { message: string }; messageText?: string };
 type TurnStatus = "completed" | "failed" | "interrupted";
 /** 只需持久化 Claude 会话记录里看不出来的失败、中断终态。 */
 type TurnHistoryStore = Pick<typeof codexEventHistory, "recordTurn">;
@@ -27,6 +27,8 @@ export type ClaudeTurnOptions = {
     turnId: string;
     cwd: string;
     prompt: string;
+    /** 用户在输入框里看到的文本；prompt 里还带有画布引用等上下文，历史里显示这一份。 */
+    messageText?: string;
     attachments?: AgentAttachment[];
     /** 执行画布工具；与 Codex 走同一个 CanvasSession.callTool。 */
     callTool: (name: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -77,7 +79,7 @@ export async function runClaudeTurn(options: ClaudeTurnOptions) {
     }
     try {
         // 先保存终态再通知网页，避免网页收到 turn.completed 后同步历史时读到旧状态。
-        await persistTurnOutcome(threadId, turnId, mapper.outcome);
+        await persistTurnOutcome(threadId, turnId, mapper.outcome, options.messageText);
         mapper.complete();
     } finally {
         if (running?.turnId === turnId) running = null;
@@ -85,10 +87,10 @@ export async function runClaudeTurn(options: ClaudeTurnOptions) {
     }
 }
 
-/** Claude 会话记录不保存失败和中断，写入补充历史，读取时恢复 turn 的终态和错误。 */
-export async function persistTurnOutcome(threadId: string, turnId: string, outcome: { status: TurnStatus; error: string }, store: TurnHistoryStore = codexEventHistory) {
-    if (outcome.status === "completed") return;
-    const turn = { id: turnId, status: outcome.status, ...(outcome.error ? { error: { message: outcome.error } } : {}) };
+/** Claude 会话记录不保存失败、中断和用户看到的原始输入，写入补充历史，读取时恢复。 */
+export async function persistTurnOutcome(threadId: string, turnId: string, outcome: { status: TurnStatus; error: string }, messageText = "", store: TurnHistoryStore = codexEventHistory) {
+    if (outcome.status === "completed" && !messageText) return;
+    const turn = { id: turnId, status: outcome.status, ...(outcome.error ? { error: { message: outcome.error } } : {}), ...(messageText ? { messageText } : {}) };
     await store.recordTurn({ threadId, turnId, turn }).catch((error) => logger.warn("Failed to persist Claude turn outcome", { threadId, turnId, error }));
 }
 
@@ -99,7 +101,8 @@ export function applyTurnOutcomes(turns: HistoryTurn[], outcomes: CodexSupplemen
         const outcome = byId.get(turn.id);
         if (!outcome || turn.status === "inProgress") return turn;
         const message = String((outcome.error as JsonRecord | undefined)?.message || "");
-        return { ...turn, status: String(outcome.status || turn.status), ...(message ? { error: { message } } : {}) };
+        const messageText = String(outcome.messageText || "");
+        return { ...turn, status: String(outcome.status || turn.status), ...(message ? { error: { message } } : {}), ...(messageText ? { messageText } : {}) };
     });
 }
 

@@ -215,6 +215,23 @@ export function AgentPendingToolCard({ summary, detail, theme, onReject, onAppro
     );
 }
 
+/** 多个画布操作等待确认时，提供全部拒绝和全部批准；全部批准按排队顺序执行。 */
+export function AgentPendingToolQueueBar({ count, theme, onRejectAll, onApproveAll }: { count: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onRejectAll: () => void; onApproveAll: () => void }) {
+    const { t } = useTranslation();
+    return (
+        <div className="flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: "rgba(217,119,6,.28)", background: "rgba(217,119,6,.05)", color: theme.node.text }}>
+            <CircleAlert className="size-4 shrink-0 text-amber-600" />
+            <span className="min-w-0 flex-1 text-sm">{t("agent.message.pendingToolQueue", { count })}</span>
+            <Button danger type="text" className="!h-8" icon={<XCircle className="size-3.5" />} onClick={onRejectAll}>
+                {t("agent.message.rejectAll")}
+            </Button>
+            <Button type="text" className="!h-8" icon={<CheckCircle2 className="size-3.5" />} style={{ color: "#16a34a" }} onClick={onApproveAll}>
+                {t("agent.message.approveAll")}
+            </Button>
+        </div>
+    );
+}
+
 export function AgentApprovalCard({ approval, theme, onDecision }: { approval: AgentPendingApproval; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onDecision: (decision: "accept" | "acceptForSession" | "decline") => void }) {
     const { t } = useTranslation();
     const isFile = approval.method === "item/fileChange/requestApproval";

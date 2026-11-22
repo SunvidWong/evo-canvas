@@ -147,6 +147,10 @@ export function startHttpServer({ resetToken = false } = {}) {
         session.activateClient(String(req.query.clientId || ""));
         res.json({ ok: true });
     });
+    app.post("/canvas/hold", (req, res) => {
+        const ok = session.holdResult(String(req.query.clientId || ""), req.body);
+        res.status(ok ? 200 : 409).json({ ok });
+    });
     app.post("/canvas/result", (req, res) => {
         const ok = session.resolveResult(String(req.query.clientId || ""), req.body);
         res.status(ok ? 200 : 409).json({ ok });
@@ -505,6 +509,7 @@ export function startHttpServer({ resetToken = false } = {}) {
             turnId,
             cwd,
             prompt: withAttachmentContext(prompt, attachmentRefs),
+            messageText,
             attachments,
             callTool: (name, toolInput) => session.callTool(name, toolInput),
             emit: turnEmit,

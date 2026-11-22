@@ -8,7 +8,10 @@ import type { ToolName } from "./schemas.js";
 import { compactCanvasState, compactNode, isToolName, nextCanvasX, parseToolInput } from "./tools.js";
 import type { CanvasSnapshot } from "./types.js";
 
-type PendingRequest = { clientId: string; resolve: (value: unknown) => void; reject: (error: Error) => void };
+type PendingRequest = { clientId: string; held: boolean; timer?: NodeJS.Timeout; resolve: (value: unknown) => void; reject: (error: Error) => void };
+
+/** 网页执行一次画布工具的超时；等待用户确认期间暂停计时。 */
+const TOOL_REQUEST_TIMEOUT_MS = 30000;
 type TurnAttachment = { clientId: string; id: string; name: string; type: string; size: number; width: number; height: number; dataUrl: string };
 type ReplayEvent = { type: string; payload: Record<string, unknown> };
 export type CodexState = { busy: boolean; threadId: string; turnId: string };
@@ -235,6 +238,7 @@ export class CanvasSession {
     /** 更新并广播 Codex 运行状态；静默后台活动可保留上一 turn 的断线重放。 */
     setCodexState(patch: Partial<CodexState>, options: { preserveReplay?: boolean } = {}) {
         const next = { ...this.codexState, ...patch };
+        if (this.codexState.busy && !next.busy) this.cancelHeldResults("对话已结束，未确认的画布操作已取消");
         const threadChanged = next.threadId !== this.codexState.threadId;
         const turnChanged = Boolean(this.codexState.turnId && next.turnId && next.turnId !== this.codexState.turnId);
         const nextTurnStarted = !this.codexState.busy && next.busy;
@@ -292,6 +296,7 @@ export class CanvasSession {
             this.pending.forEach((item, requestId) => {
                 if (item.clientId !== clientId) return;
                 this.pending.delete(requestId);
+                clearTimeout(item.timer);
                 item.reject(new Error("请求页面已断开"));
             });
             if (this.activeClientId === clientId) this.activeClientId = [...this.clients.keys()].sort((a, b) => (this.clientFocusOrder.get(b) || 0) - (this.clientFocusOrder.get(a) || 0))[0] || "";
@@ -376,9 +381,45 @@ export class CanvasSession {
         const item = body.requestId ? this.pending.get(body.requestId) : null;
         if (!item || !body.requestId || item.clientId !== clientId) return false;
         this.pending.delete(body.requestId);
+        clearTimeout(item.timer);
         logger.debug("Canvas tool result received", { clientId, requestId: body.requestId, error: body.error, result: body.result });
         body.error ? item.reject(new Error(body.error)) : item.resolve(body.result);
         return true;
+    }
+
+    /** 网页把工具请求放进确认队列时暂停超时，批准后重新开始计时。 */
+    holdResult(clientId: string, body: { requestId?: string; held?: boolean }) {
+        const item = body.requestId ? this.pending.get(body.requestId) : null;
+        if (!item || !body.requestId || item.clientId !== clientId) return false;
+        clearTimeout(item.timer);
+        item.held = Boolean(body.held);
+        item.timer = item.held ? undefined : this.startToolTimer(body.requestId);
+        return true;
+    }
+
+    /** turn 结束后不会再有人等待结果，取消仍在确认队列里的请求并通知网页移除。 */
+    private cancelHeldResults(reason: string) {
+        const canceled = new Map<string, string[]>();
+        this.pending.forEach((item, requestId) => {
+            if (!item.held) return;
+            this.pending.delete(requestId);
+            item.reject(new Error(reason));
+            canceled.set(item.clientId, [...(canceled.get(item.clientId) || []), requestId]);
+        });
+        canceled.forEach((requestIds, clientId) => {
+            const client = this.clients.get(clientId);
+            if (client) sendEvent(client, "tool_calls_canceled", { requestIds });
+        });
+    }
+
+    private startToolTimer(requestId: string) {
+        return setTimeout(() => {
+            const item = this.pending.get(requestId);
+            if (!item) return;
+            this.pending.delete(requestId);
+            logger.warn("Canvas tool request timed out", { requestId, clientId: item.clientId });
+            item.reject(new Error("画布操作超时"));
+        }, TOOL_REQUEST_TIMEOUT_MS);
     }
 
     /** 向全部已连接网页广播事件。 */
@@ -494,12 +535,7 @@ export class CanvasSession {
         sendEvent(client, "tool_call", { requestId, name, input });
         logger.debug("Canvas tool request sent", { requestId, name, input, clientId });
         return await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.pending.delete(requestId);
-                logger.warn("Canvas tool request timed out", { requestId, name, clientId });
-                reject(new Error("画布操作超时"));
-            }, 30000);
-            this.pending.set(requestId, { clientId, resolve: (value) => (clearTimeout(timer), resolve(value)), reject: (error) => (clearTimeout(timer), reject(error)) });
+            this.pending.set(requestId, { clientId, held: false, timer: this.startToolTimer(requestId), resolve, reject });
         });
     }
 }
