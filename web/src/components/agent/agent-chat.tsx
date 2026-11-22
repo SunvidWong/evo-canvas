@@ -6,7 +6,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { summarizeCanvasAgentOps } from "@/lib/canvas/canvas-agent-ops";
 import { useAgentStore, type AgentChatItem, type AgentPendingApproval, type AgentPendingToolCall, type AgentTokenUsage } from "@/stores/use-agent-store";
 import { AgentApprovalCard, AgentChatMessage, AgentCommandGroup, AgentPendingToolCard, AgentPendingToolQueueBar, AgentToolCard, AgentWorkingMessage } from "./agent-chat-message";
-import { agentMessageToChatMessage, currentPlanMessage, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
+import { agentMessageToChatMessage, currentPlanMessage, isMemoryProposalTool, isPlanMessage, latestPlanMessage, toolCallDetail, toolName, workingActivity } from "./agent-event-formatters";
 import { AgentScrollToBottom } from "./agent-scroll-to-bottom";
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
@@ -93,7 +93,7 @@ export function AgentChatTimeline({
                     {pendingTools.map((tool) => (
                         <AgentPendingToolCard
                             key={tool.requestId}
-                            summary={summarizeCanvasAgentOps(tool.input?.ops || []) || toolName(tool.name)}
+                            summary={isMemoryProposalTool(tool.name) ? t("agent.memory.proposal", { text: String(tool.input?.text || ""), interpolation: { escapeValue: false } }) : summarizeCanvasAgentOps(tool.input?.ops || []) || toolName(tool.name)}
                             detail={toolCallDetail(tool.name, tool.input, "pending")}
                             theme={theme}
                             onReject={() => onRejectTools([tool.requestId])}

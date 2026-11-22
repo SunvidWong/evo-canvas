@@ -132,6 +132,29 @@ export function deleteCodexSkillFile(endpoint: string, token: string, name: stri
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/delete`, jsonPost({ path }));
 }
 
+export type AgentMemoryItem = { id: string; text: string; enabled: boolean; createdAt: number; updatedAt: number };
+export type AgentMemoryState = { version: 1; enabled: boolean; items: AgentMemoryItem[] };
+
+export function fetchAgentMemory(endpoint: string, token: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryState }>(endpoint, token, "/agent/memory");
+}
+
+export function addAgentMemory(endpoint: string, token: string, text: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryItem }>(endpoint, token, "/agent/memory", jsonPost({ text }));
+}
+
+export function updateAgentMemory(endpoint: string, token: string, id: string, patch: { text?: string; enabled?: boolean }) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryItem }>(endpoint, token, `/agent/memory/${encodeURIComponent(id)}`, jsonPost(patch));
+}
+
+export function deleteAgentMemory(endpoint: string, token: string, id: string) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/memory/${encodeURIComponent(id)}/delete`, jsonPost({}));
+}
+
+export function setAgentMemoryEnabled(endpoint: string, token: string, enabled: boolean) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, "/agent/memory/settings", jsonPost({ enabled }));
+}
+
 export type AgentSkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: AgentSkillFile[]; totalSize: number };
 
 export function previewCodexSkillInstall(endpoint: string, token: string, url: string) {

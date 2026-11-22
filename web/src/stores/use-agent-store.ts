@@ -3,6 +3,7 @@ import i18n from "@/i18n";
 
 import type { CanvasAgentOp, CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import type { AgentMemoryState } from "@/services/api/canvas-agent";
 
 export type AgentChatRole = "user" | "assistant" | "system" | "tool" | "error";
 export type AgentAttachment = { id: string; name: string; type: string; size: number; width: number; height: number; url: string; dataUrl: string };
@@ -37,7 +38,7 @@ export type AgentConversationState = {
     sourceClientId?: string;
     error?: string;
 };
-export type AgentPanelTab = "chat" | "setup" | "history" | "skills" | "log";
+export type AgentPanelTab = "chat" | "setup" | "history" | "skills" | "memory" | "log";
 /** 本地 Agent 类型，两种 Agent 的会话历史分开保存。 */
 export type AgentKind = "codex" | "claude";
 
@@ -87,6 +88,8 @@ type AgentStore = {
     /** 手动确认模式下等待确认的画布工具，按到达顺序排列。 */
     pendingTools: AgentPendingToolCall[];
     pendingApprovals: AgentPendingApproval[];
+    /** 本地 Agent 保存的全局记忆；未连接或未读取时为空。 */
+    memory: AgentMemoryState | null;
     setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
     openPanel: () => void;
     closePanel: () => void;
@@ -141,6 +144,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     connectError: "",
     pendingTools: [],
     pendingApprovals: [],
+    memory: null,
     setAgentState: (patch) => set(patch),
     openPanel: () => set({ panelOpen: true, panelMounted: true, panelClosing: false }),
     closePanel: () => {

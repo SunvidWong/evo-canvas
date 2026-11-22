@@ -7,6 +7,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { deleteClaudeThread, interruptClaudeTurn, listClaudeThreads, newClaudeThreadId, readClaudeThread, runClaudeTurn } from "../agent/claude.js";
 import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
 import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-protocol.js";
+import { AgentMemoryError, agentMemoryStore } from "../agent/memory.js";
 import { messageMetadataStore } from "../agent/message-metadata.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
@@ -270,6 +271,29 @@ export function startHttpServer({ resetToken = false } = {}) {
         session.emitAll("skills_changed", { forceReload: true });
         res.status(201).json({ ok: true, data });
     }));
+    app.get("/agent/memory", route(async (_req, res) => {
+        res.json({ ok: true, data: await agentMemoryStore.list() });
+    }));
+    app.post("/agent/memory", route(async (req, res) => {
+        const { result, state } = await agentMemoryStore.add(req.body?.text);
+        session.emitAll("memory_changed", state);
+        res.status(201).json({ ok: true, data: result });
+    }));
+    app.post("/agent/memory/settings", route(async (req, res) => {
+        const { result, state } = await agentMemoryStore.setEnabled(req.body?.enabled);
+        session.emitAll("memory_changed", state);
+        res.json({ ok: true, data: result });
+    }));
+    app.post("/agent/memory/:id/delete", route(async (req, res) => {
+        const { result, state } = await agentMemoryStore.remove(routeParam(req.params.id));
+        session.emitAll("memory_changed", state);
+        res.json({ ok: true, data: result });
+    }));
+    app.post("/agent/memory/:id", route(async (req, res) => {
+        const { result, state } = await agentMemoryStore.update(routeParam(req.params.id), { text: req.body?.text, enabled: req.body?.enabled });
+        session.emitAll("memory_changed", state);
+        res.json({ ok: true, data: result });
+    }));
     // 只保留最近一次预览，安装时必须使用用户看过的那份内容。
     let skillInstallPreview: ReturnType<typeof buildInstallPreview> | null = null;
     app.post("/agent/codex/skills/install/preview", route(async (req, res) => {
@@ -431,7 +455,11 @@ export function startHttpServer({ resetToken = false } = {}) {
                     ...(sourceClientId ? { sourceClientId } : {}),
                 });
             };
-            void runCodexTurn(withAttachmentContext(prompt, attachmentRefs), lifecycleEmit, attachments, {
+            const memoryContext = await agentMemoryStore.promptContext().catch((error) => {
+                logger.warn("Failed to read agent memory", { error });
+                return "";
+            });
+            void runCodexTurn(withMemoryContext(withAttachmentContext(prompt, attachmentRefs), memoryContext), lifecycleEmit, attachments, {
                 threadId,
                 cwd: workspace.workspacePath,
                 permissionMode: permissionMode(req.body?.permissionMode),
@@ -536,11 +564,15 @@ export function startHttpServer({ resetToken = false } = {}) {
             if (type === "agent_log") return emit(type, value);
             session.emitThread(type, threadId, { ...value, threadId, thread_id: threadId, turnId, turn_id: turnId, sourceClientId: clientId });
         };
+        const memoryContext = await agentMemoryStore.promptContext().catch((error) => {
+            logger.warn("Failed to read agent memory", { error });
+            return "";
+        });
         void runClaudeTurn({
             threadId,
             turnId,
             cwd,
-            prompt: withAttachmentContext(prompt, attachmentRefs),
+            prompt: withMemoryContext(withAttachmentContext(prompt, attachmentRefs), memoryContext),
             messageText,
             attachments,
             callTool: (name, toolInput) => session.callTool(name, toolInput),
@@ -558,7 +590,7 @@ export function startHttpServer({ resetToken = false } = {}) {
     app.use((_req, res) => res.status(404).json({ ok: false, error: "not found" }));
     app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
         logger.error("HTTP request failed", { method: req.method, path: req.path, error });
-        if (error instanceof SkillStoreError || error instanceof CodexSkillLookupError) return void res.status(error.statusCode).json({ ok: false, error: error.message });
+        if (error instanceof SkillStoreError || error instanceof CodexSkillLookupError || error instanceof AgentMemoryError) return void res.status(error.statusCode).json({ ok: false, error: error.message });
         res.status(500).json({ ok: false, error: error.message });
     });
 
@@ -679,6 +711,11 @@ function setCors(req: Request, res: Response, url: URL, config: CanvasAgentConfi
 function validToken(req: Request, url: URL, token: string) {
     const header = req.headers["x-canvas-agent-token"];
     return url.searchParams.get("token") === token || header === token || (Array.isArray(header) && header.includes(token));
+}
+
+/** 向 Agent 提示词追加用户确认过的长期记忆；记忆只进提示词，不进对话里显示的用户消息。 */
+function withMemoryContext(prompt: string, memoryContext: string) {
+    return memoryContext ? `${prompt}\n\n${memoryContext}` : prompt;
 }
 
 /** 向 Agent 提示词追加本轮图片附件引用说明。 */
