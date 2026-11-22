@@ -17,7 +17,7 @@ afterAll(() => {
 });
 
 const { buildApiUrl, channelNeedsApiKey, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
-const { buildComfyWorkflow, collectComfyOutputs, parseComfyWorkflow } = await import("../src/services/api/comfyui");
+const { buildComfyWorkflow, collectComfyOutputs, parseComfyHistoryWorkflows, parseComfyWorkflow } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
 const { CHANNEL_PRESETS, findChannelPreset } = await import("../src/lib/channel-presets");
@@ -142,5 +142,18 @@ describe("ComfyUI 工作流", () => {
             ["clip.mp4", "video"],
         ]);
         expect(collectComfyOutputs({ "11": { images: [{ filename: "preview.png", type: "temp" }] } })).toHaveLength(1);
+    });
+
+    test("从运行历史取出 API 工作流，最新的在前，按输出识别视频", () => {
+        const items = parseComfyHistoryWorkflows({
+            old: { prompt: [0, "old", { "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "flux1-dev.safetensors" } }, "5": { class_type: "KSampler", inputs: {} } }, {}, ["9"]], outputs: { "9": { images: [{ filename: "a.png", type: "output" }] } } },
+            fresh: { prompt: [1, "fresh", { "1": { class_type: "KSamplerAdvanced", inputs: {} }, "2": { class_type: "SaveAnimatedWEBP", inputs: {} } }, {}, []], outputs: { "2": { gifs: [{ filename: "v.mp4", type: "output", format: "video/h264-mp4" }] } }, status: { messages: [["execution_start", { timestamp: 123 }]] } },
+            broken: { prompt: [2, "broken", { nodes: [] }] },
+        });
+        expect(items.map((item) => [item.id, item.capability, item.summary, item.time])).toEqual([
+            ["fresh", "video", "KSamplerAdvanced", 123],
+            ["old", "image", "flux1-dev.safetensors", undefined],
+        ]);
+        expect(parseComfyHistoryWorkflows(null)).toEqual([]);
     });
 });

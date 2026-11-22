@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Input, Modal, Segmented } from "antd";
-import { Upload } from "lucide-react";
+import { Alert, Button, Empty, Input, Modal, Segmented, Spin } from "antd";
+import { History, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { parseComfyWorkflow } from "@/services/api/comfyui";
-import type { ModelCapability } from "@/stores/use-config-store";
+import { fetchComfyHistoryWorkflows, parseComfyWorkflow, type ComfyHistoryWorkflow } from "@/services/api/comfyui";
+import type { ModelCapability, ModelChannel } from "@/stores/use-config-store";
 
 export type ComfyWorkflowDraft = { name: string; capability: ModelCapability; workflow: string };
 
@@ -13,6 +13,7 @@ export function ComfyWorkflowEditor({
     open,
     value,
     existingNames,
+    channel,
     onSave,
     onClose,
 }: {
@@ -20,6 +21,8 @@ export function ComfyWorkflowEditor({
     /** 为空表示新增。 */
     value: ComfyWorkflowDraft | null;
     existingNames: string[];
+    /** 用来读取 ComfyUI 的运行历史；不传时不显示「从最近运行导入」。 */
+    channel?: Pick<ModelChannel, "baseUrl" | "apiKey">;
     onSave: (draft: ComfyWorkflowDraft, previousName?: string) => void;
     onClose: () => void;
 }) {
@@ -27,12 +30,31 @@ export function ComfyWorkflowEditor({
     const [draft, setDraft] = useState<ComfyWorkflowDraft>({ name: "", capability: "image", workflow: "" });
     const [error, setError] = useState("");
     const fileRef = useRef<HTMLInputElement>(null);
+    const [history, setHistory] = useState<{ loading: boolean; items: ComfyHistoryWorkflow[]; error: string } | null>(null);
 
     useEffect(() => {
         if (!open) return;
         setDraft(value || { name: "", capability: "image", workflow: "" });
         setError("");
+        setHistory(null);
     }, [open, value]);
+
+    const loadHistory = async () => {
+        if (!channel) return;
+        setHistory({ loading: true, items: [], error: "" });
+        try {
+            setHistory({ loading: false, items: await fetchComfyHistoryWorkflows(channel), error: "" });
+        } catch (loadError) {
+            setHistory({ loading: false, items: [], error: loadError instanceof Error ? loadError.message : String(loadError) });
+        }
+    };
+
+    const pickHistory = (item: ComfyHistoryWorkflow) => {
+        const fallbackName = item.models[0]?.split(/[\\/]/).pop()?.replace(/\.(safetensors|ckpt|gguf|pt|bin)$/i, "") || `workflow-${item.id.slice(0, 8)}`;
+        setDraft((current) => ({ ...current, workflow: JSON.stringify(item.workflow, null, 2), capability: item.capability, name: current.name || fallbackName }));
+        setHistory(null);
+        setError("");
+    };
 
     const save = () => {
         const name = draft.name.trim();
@@ -83,9 +105,16 @@ export function ComfyWorkflowEditor({
                 <div>
                     <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="text-sm font-medium">{t("config.comfyWorkflow.json")}</span>
-                        <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileRef.current?.click()}>
-                            {t("config.comfyWorkflow.import")}
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                            {channel ? (
+                                <Button size="small" icon={<History className="size-3.5" />} loading={history?.loading} onClick={() => void loadHistory()}>
+                                    {t("config.comfyWorkflow.importHistory")}
+                                </Button>
+                            ) : null}
+                            <Button size="small" icon={<Upload className="size-3.5" />} onClick={() => fileRef.current?.click()}>
+                                {t("config.comfyWorkflow.import")}
+                            </Button>
+                        </div>
                         <input
                             ref={fileRef}
                             type="file"
@@ -97,6 +126,42 @@ export function ComfyWorkflowEditor({
                             }}
                         />
                     </div>
+                    {history && !history.loading ? (
+                        <div className="mb-2 rounded-lg border border-stone-200 p-2 dark:border-stone-700" data-testid="comfy-history">
+                            <div className="mb-1 flex items-center justify-between text-xs text-stone-500">
+                                <span>{t("config.comfyWorkflow.historyTitle")}</span>
+                                <Button size="small" type="text" onClick={() => setHistory(null)}>
+                                    {t("config.comfyWorkflow.historyClose")}
+                                </Button>
+                            </div>
+                            {history.error ? (
+                                <Alert type="error" showIcon message={history.error} />
+                            ) : history.items.length ? (
+                                <div className="max-h-56 space-y-1 overflow-y-auto">
+                                    {history.items.map((item) => (
+                                        <button
+                                            key={item.id}
+                                            type="button"
+                                            className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm hover:bg-stone-100 dark:hover:bg-stone-800"
+                                            onClick={() => pickHistory(item)}
+                                        >
+                                            <span className="min-w-0 truncate">{item.summary || t("config.comfyWorkflow.historyUnnamed")}</span>
+                                            <span className="shrink-0 text-xs text-stone-500">
+                                                {t(`config.channelEditor.capabilities.${item.capability}`)} · {t("config.comfyWorkflow.historyNodes", { count: item.nodeCount })}
+                                                {item.time ? ` · ${new Date(item.time).toLocaleString()}` : ""}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("config.comfyWorkflow.historyEmpty")} />
+                            )}
+                        </div>
+                    ) : history?.loading ? (
+                        <div className="mb-2 flex justify-center py-3">
+                            <Spin size="small" />
+                        </div>
+                    ) : null}
                     <Input.TextArea
                         value={draft.workflow}
                         autoSize={{ minRows: 10, maxRows: 18 }}

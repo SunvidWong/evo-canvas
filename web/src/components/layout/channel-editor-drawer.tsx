@@ -229,6 +229,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                 open={Boolean(workflowTarget)}
                 value={workflowTarget?.value || null}
                 existingNames={draft.models.map((model) => model.name)}
+                channel={draft}
                 onSave={saveWorkflow}
                 onClose={() => setWorkflowTarget(null)}
             />
