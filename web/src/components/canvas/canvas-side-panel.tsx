@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Empty, Input, Popconfirm, Select, Spin, Tag } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Check, ChevronRight, Download, Eye, FileText, Image as ImageIcon, LayoutGrid, ListChecks, Music2, Plus, Rows3, Search, Settings2, Square, Trash2, Type, Video } from "lucide-react";
+import { BookOpen, Check, ChevronRight, Download, Eye, FileText, Image as ImageIcon, LayoutGrid, ListChecks, Music2, Plus, Rows3, Search, Settings2, Square, Trash2, Type, Video, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
@@ -20,7 +20,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 import type { InsertAssetPayload } from "./asset-picker-modal";
-import { useNarrowScreen } from "@/hooks/use-narrow-screen";
+import { NARROW_SCREEN_WIDTH, useViewportWidth } from "@/hooks/use-narrow-screen";
 
 const PANEL_MOTION_SECONDS = CANVAS_SIDE_PANEL_MOTION_MS / 1000;
 const PANEL_EASE = [0.22, 1, 0.36, 1] as const;
@@ -57,9 +57,11 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [tab, setTab] = useState<PanelTab>("canvas");
     const storedWidth = useCanvasSidePanelStore((state) => state.width);
-    // 手机宽度下面板浮在画布上方，右侧留出一条可点的画布区域用来关闭。
-    const narrow = useNarrowScreen();
-    const width = narrow ? Math.min(storedWidth, window.innerWidth - 56) : storedWidth;
+    // 手机宽度下面板浮在画布上方并盖住顶栏的展开按钮，所以面板内另放关闭按钮；右侧留出一条画布可见。
+    const viewportWidth = useViewportWidth();
+    const narrow = viewportWidth < NARROW_SCREEN_WIDTH;
+    const width = narrow ? Math.min(storedWidth, viewportWidth - 56) : storedWidth;
+    const closePanel = useCanvasSidePanelStore((state) => state.closePanel);
     const panelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
     const panelMounted = useCanvasSidePanelStore((state) => state.panelMounted);
     const panelClosing = useCanvasSidePanelStore((state) => state.panelClosing);
@@ -108,6 +110,11 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                     <TabButton label={t("canvas.sidePanel.canvas")} active={tab === "canvas"} theme={theme} onClick={() => setTab("canvas")} />
                     <TabButton label={t("canvas.sidePanel.assets")} active={tab === "assets"} theme={theme} onClick={() => setTab("assets")} />
                     <TabButton label={t("canvas.sidePanel.prompts")} active={tab === "prompts"} theme={theme} onClick={() => setTab("prompts")} />
+                    {narrow ? (
+                        <button type="button" className="-mr-1.5 ml-auto grid size-7 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" onClick={closePanel} aria-label={t("canvas.collapsePanel")} title={t("canvas.collapsePanel")}>
+                            <X className="size-4" />
+                        </button>
+                    ) : null}
                 </div>
                 <div className="mt-2 min-h-0 flex-1 overflow-hidden">
                     {tab === "canvas" ? (
@@ -118,7 +125,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
                         <CanvasPromptsTab onInsert={onInsertAsset} theme={theme} />
                     )}
                 </div>
-                <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("canvas.sidePanel.resize")} />
+                {narrow ? null : <button type="button" className="absolute inset-y-0 right-0 z-40 w-4 translate-x-1/2 cursor-col-resize" onPointerDown={startResize} aria-label={t("canvas.sidePanel.resize")} />}
             </motion.aside>
         </motion.div>
     );

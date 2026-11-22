@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { isNarrowScreen } from "@/hooks/use-narrow-screen";
+
 export const CANVAS_SIDE_PANEL_MOTION_MS = 500;
 export const CANVAS_SIDE_PANEL_MIN_WIDTH = 220;
 export const CANVAS_SIDE_PANEL_MAX_WIDTH = 480;
@@ -21,7 +23,7 @@ function initialWidth() {
 function initialOpen() {
     if (typeof window === "undefined") return true;
     // 手机宽度下默认收起，避免一打开画布就被面板挡住。
-    if (window.matchMedia?.("(max-width: 767px)").matches) return false;
+    if (isNarrowScreen()) return false;
     return localStorage.getItem(OPEN_KEY) !== "0";
 }
 

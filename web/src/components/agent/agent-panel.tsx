@@ -6,7 +6,7 @@ import { LocalAgentPanel } from "./local-agent-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { CANVAS_AGENT_PANEL_MOTION_MS, useAgentStore } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useNarrowScreen } from "@/hooks/use-narrow-screen";
+import { NARROW_SCREEN_WIDTH, useViewportWidth } from "@/hooks/use-narrow-screen";
 
 const PANEL_MOTION_SECONDS = CANVAS_AGENT_PANEL_MOTION_MS / 1000;
 
@@ -15,8 +15,9 @@ export function AgentPanel() {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const storedWidth = useAgentStore((state) => state.width);
     // 手机宽度下 Agent 面板铺满屏幕，浮在画布上方。
-    const narrow = useNarrowScreen();
-    const width = narrow ? window.innerWidth : storedWidth;
+    const viewportWidth = useViewportWidth();
+    const narrow = viewportWidth < NARROW_SCREEN_WIDTH;
+    const width = narrow ? viewportWidth : storedWidth;
     const [resizing, setResizing] = useState(false);
     const panelMounted = useAgentStore((state) => state.panelMounted);
     const panelOpen = useAgentStore((state) => state.panelOpen);
