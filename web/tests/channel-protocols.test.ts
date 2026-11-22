@@ -16,7 +16,7 @@ afterAll(() => {
     else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-const { buildApiUrl, channelNeedsApiKey, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
+const { buildApiUrl, channelNeedsApiKey, guessCapability, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
 const { buildComfyWorkflow, collectComfyOutputs, parseComfyHistoryWorkflows, parseComfyWorkflow } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
@@ -62,6 +62,20 @@ describe("渠道协议与地址", () => {
         expect(new Set(ids).size).toBe(ids.length);
         expect(findChannelPreset("openai-chat", "https://api.deepseek.com/v1/")?.id).toBe("deepseek");
         expect(findChannelPreset("openai", "https://api.deepseek.com/v1")).toBeUndefined();
+    });
+});
+
+describe("模型能力识别", () => {
+    test("覆盖国内外常见生图、视频、语音模型，文本和看图模型不误判", () => {
+        const cases: Record<string, string> = {
+            "qwen-image": "image", "hunyuan-image-3.0": "image", "cogview-4": "image", "Kwai-Kolors/Kolors": "image", "jimeng-3.1": "image", "wanx2.1-t2i-turbo": "image",
+            "flux-kontext-pro": "image", "gpt-image-1": "image", "doubao-seedream-4-0": "image", "kling-v2-image": "image", "gemini-2.5-flash-image": "image", "ideogram-v3": "image",
+            "doubao-seedance-1-0-pro": "video", "wan2.2-i2v-plus": "video", "Wan-AI/Wan2.1-T2V-14B": "video", "cogvideox-5b": "video", "hunyuan-video": "video", "jimeng-video-3.0": "video",
+            "vidu-q1": "video", "MiniMax-Hailuo-02": "video", "kling-v2-1-master": "video", "veo-3": "video", "ltxv-13b": "video",
+            "cosyvoice-v2": "audio", "fishaudio/fish-speech-1.5": "audio", "speech-02-hd": "audio", "gpt-4o-mini-tts": "audio", "suno-v4": "audio",
+            "qwen3:8b": "text", "deepseek-chat": "text", "claude-sonnet-4-5": "text", "qwen-vl-max": "text", "glm-4.5": "text", "kimi-k2": "text", "swan-7b": "text",
+        };
+        for (const [name, capability] of Object.entries(cases)) expect([name, guessCapability(name)]).toEqual([name, capability]);
     });
 });
 

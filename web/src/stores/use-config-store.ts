@@ -167,20 +167,25 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-const VIDEO_KEYWORDS = ["video", "sora", "veo", "kling", "wan", "hailuo"];
 
 export function boolConfig(value: string, fallback: boolean) {
     return value ? value === "true" : fallback;
 }
-const AUDIO_KEYWORDS = ["audio", "tts", "speech", "voice", "music", "sound"];
-const IMAGE_KEYWORDS = ["seedream", "gpt-image", "image", "dall-e", "dalle", "imagen", "flux", "sdxl", "stable-diffusion", "midjourney"];
+/** 名字里明确写了用途的，优先按用途判断（例如 wan2.1-t2i 是生图，kling-image 是生图，jimeng-video 是视频）。 */
+const EXPLICIT_VIDEO = /video|t2v|i2v|v2v/;
+const EXPLICIT_IMAGE = /t2i|i2i|image/;
+const VIDEO_BRANDS = /sora|veo|kling|\bwan(?!x)|hailuo|seedance|vidu|pixverse|cogvideo|ltx-?v|mochi|runway|gen-?3|luma|pika/;
+const AUDIO_BRANDS = /audio|tts|speech|voice|music|sound|cosyvoice|suno|sambert|elevenlabs/;
+const IMAGE_BRANDS = /seedream|seededit|dall-?e|imagen|flux|sdxl|sd3|stable-diffusion|midjourney|cogview|kolors|jimeng|wanx|ideogram|recraft|kontext|hidream/;
 
 /** Best-effort default capability for a freshly fetched model name; user can override in the channel editor. */
 export function guessCapability(name: string): ModelCapability {
     const value = name.toLowerCase();
-    if (VIDEO_KEYWORDS.some((keyword) => value.includes(keyword))) return "video";
-    if (AUDIO_KEYWORDS.some((keyword) => value.includes(keyword))) return "audio";
-    if (IMAGE_KEYWORDS.some((keyword) => value.includes(keyword))) return "image";
+    if (EXPLICIT_VIDEO.test(value)) return "video";
+    if (EXPLICIT_IMAGE.test(value)) return "image";
+    if (VIDEO_BRANDS.test(value)) return "video";
+    if (AUDIO_BRANDS.test(value)) return "audio";
+    if (IMAGE_BRANDS.test(value)) return "image";
     return "text";
 }
 
