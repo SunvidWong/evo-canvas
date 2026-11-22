@@ -548,7 +548,7 @@ export default {
                 gemini: "Google Gemini API, with text, image and video.",
                 comfyui: "Connects to ComfyUI on this computer or your network. Each \"model\" is an exported API-format workflow used for image or video.",
             },
-            apiKeyOptional: "API key (optional)",
+            maxTokens: "Max reply length (tokens, optional)", maxTokensPlaceholder: "Leave empty to use the provider default", maxTokensHint: "Only affects text chat. Replies longer than this are cut off.", maxTokensHintAnthropic: "Claude requires a limit. Leave empty to use {{limit}}; a reply that hits it ends with a cut-off notice.", apiKeyOptional: "API key (optional)",
             apiKeyOptionalPlaceholder: "Local services usually don't need one",
             addWorkflow: "Add workflow",
             workflowDescription: "{{count}} workflows added; each one is used as a model on the canvas.",

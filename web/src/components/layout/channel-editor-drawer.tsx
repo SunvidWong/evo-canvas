@@ -1,10 +1,11 @@
-import { Button, Drawer, Input, Segmented, Select, Space } from "antd";
+import { Button, Drawer, Input, InputNumber, Segmented, Select, Space } from "antd";
 import { ListPlus, Plus, Trash2, Workflow } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
-import { API_CALL_FORMATS, apiFormatName, channelNeedsApiKey, defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import { ANTHROPIC_MAX_TOKENS } from "@/services/api/anthropic";
+import { API_CALL_FORMATS, apiFormatName, channelNeedsApiKey, normalizeMaxTokens, defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { ComfyWorkflowEditor, type ComfyWorkflowDraft } from "./comfy-workflow-editor";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
@@ -120,6 +121,20 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                     <span className="mb-1 block text-sm font-medium">{channelNeedsApiKey(draft) ? "API Key" : t("config.channelEditor.apiKeyOptional")}</span>
                     <Input.Password value={draft.apiKey} onChange={(event) => patch({ apiKey: event.target.value })} placeholder={channelNeedsApiKey(draft) ? "sk-..." : t("config.channelEditor.apiKeyOptionalPlaceholder")} />
                 </label>
+                {isComfy ? null : (
+                    <label className="block md:col-span-2">
+                        <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.maxTokens")}</span>
+                        <InputNumber
+                            className="!w-full"
+                            min={1}
+                            precision={0}
+                            value={draft.maxTokens ?? null}
+                            placeholder={draft.apiFormat === "anthropic" ? String(ANTHROPIC_MAX_TOKENS) : t("config.channelEditor.maxTokensPlaceholder")}
+                            onChange={(value) => patch({ maxTokens: normalizeMaxTokens(value) })}
+                        />
+                        <span className="mt-1 block text-xs text-stone-500">{t(draft.apiFormat === "anthropic" ? "config.channelEditor.maxTokensHintAnthropic" : "config.channelEditor.maxTokensHint", { limit: ANTHROPIC_MAX_TOKENS })}</span>
+                    </label>
+                )}
             </div>
 
             <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">

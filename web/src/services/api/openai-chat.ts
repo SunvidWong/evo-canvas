@@ -57,7 +57,7 @@ export async function requestChatCompletion(config: AiConfig, messages: ChatMess
     const response = await fetch(buildApiUrl(config.baseUrl, "/chat/completions"), {
         method: "POST",
         headers: { ...openAICompatibleHeaders(config.apiKey, "application/json"), Accept: "text/event-stream" },
-        body: JSON.stringify({ model: config.model, messages, stream: true }),
+        body: JSON.stringify({ model: config.model, messages, stream: true, ...(config.maxTokens ? { max_tokens: config.maxTokens } : {}) }),
         signal: options?.signal,
     });
     if (!response.ok) throw new Error(await readError(response));

@@ -50,6 +50,9 @@ describe("渠道协议与地址", () => {
         expect(createModelChannel({ apiFormat: "comfyui" }).baseUrl).toBe("http://127.0.0.1:8188");
         expect(createModelChannel({ apiFormat: "openai-chat" }).apiFormat).toBe("openai-chat");
         expect(createModelChannel({ apiFormat: "unknown" as never }).apiFormat).toBe("openai");
+        expect(createModelChannel({ maxTokens: 4096 }).maxTokens).toBe(4096);
+        expect(createModelChannel({ maxTokens: -1 }).maxTokens).toBeUndefined();
+        expect(createModelChannel({ maxTokens: "2048" as never }).maxTokens).toBe(2048);
         expect(normalizeChannelModels([{ name: "t2i", capability: "image", workflow: " {} " }])).toEqual([{ name: "t2i", capability: "image", script: undefined, workflow: "{}" }]);
     });
 
