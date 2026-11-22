@@ -20,6 +20,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 import type { InsertAssetPayload } from "./asset-picker-modal";
+import { useNarrowScreen } from "@/hooks/use-narrow-screen";
 
 const PANEL_MOTION_SECONDS = CANVAS_SIDE_PANEL_MOTION_MS / 1000;
 const PANEL_EASE = [0.22, 1, 0.36, 1] as const;
@@ -55,7 +56,10 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const [tab, setTab] = useState<PanelTab>("canvas");
-    const width = useCanvasSidePanelStore((state) => state.width);
+    const storedWidth = useCanvasSidePanelStore((state) => state.width);
+    // 手机宽度下面板浮在画布上方，右侧留出一条可点的画布区域用来关闭。
+    const narrow = useNarrowScreen();
+    const width = narrow ? Math.min(storedWidth, window.innerWidth - 56) : storedWidth;
     const panelOpen = useCanvasSidePanelStore((state) => state.panelOpen);
     const panelMounted = useCanvasSidePanelStore((state) => state.panelMounted);
     const panelClosing = useCanvasSidePanelStore((state) => state.panelClosing);
@@ -86,7 +90,7 @@ export function CanvasSidePanel({ nodes, selectedNodeIds, onFocusNode, onPreview
 
     return (
         <motion.div
-            className="relative z-[60] flex h-full shrink-0"
+            className={narrow ? "absolute inset-y-0 left-0 z-[60] flex h-full" : "relative z-[60] flex h-full shrink-0"}
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: panelOpen ? width + 1 : 0, opacity: panelOpen ? 1 : 0 }}
             transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: PANEL_EASE }}

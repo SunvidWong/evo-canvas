@@ -74,7 +74,7 @@ export function CanvasTopBar({
 
     return (
         <>
-            <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between pl-1 pr-4">
+            <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between gap-2 pl-1 pr-4 max-md:pr-2">
                 <div className="pointer-events-auto flex min-w-0 items-center gap-2">
                     <Tooltip title={sidePanelOpen ? t("canvas.collapsePanel") : t("canvas.expandPanel")}>
                         <button
@@ -122,13 +122,13 @@ export function CanvasTopBar({
                                     if (event.key === "Enter") onFinishTitleEditing();
                                     if (event.key === "Escape") onCancelTitleEditing();
                                 }}
-                                className="max-w-[280px] bg-transparent p-0 text-left text-lg font-semibold tracking-normal outline-none"
+                                className="max-w-[280px] bg-transparent max-md:max-w-[120px] max-md:text-base p-0 text-left text-lg font-semibold tracking-normal outline-none"
                                 style={{ color: theme.node.text }}
                             />
                         ) : (
                             <button
                                 type="button"
-                                className="max-w-[280px] truncate border-b border-dashed border-transparent text-left text-lg font-semibold tracking-normal transition hover:border-current"
+                                className="max-w-[280px] truncate border-b max-md:max-w-[120px] max-md:text-base border-dashed border-transparent text-left text-lg font-semibold tracking-normal transition hover:border-current"
                                 onDoubleClick={onStartTitleEditing}
                                 title={t("canvas.renameHint")}
                             >
@@ -139,17 +139,18 @@ export function CanvasTopBar({
                     <CompactAgentStatus status={compactAgentStatus} onClick={onToggleAgent} />
                 </div>
 
-                <div className="pointer-events-auto flex items-center gap-1.5">
+                <div className="pointer-events-auto flex shrink-0 items-center gap-1.5">
                     <UserStatusActions variant="canvas" onOpenShortcuts={() => setShortcutsOpen(true)} onOpenPlugins={onOpenPlugins} />
-                    <span className="h-6 w-px" style={{ background: theme.toolbar.border }} />
+                    <span className="h-6 w-px max-md:hidden" style={{ background: theme.toolbar.border }} />
                     <Button
                         type="text"
-                        className="!h-10 !rounded-xl !px-3 !font-medium"
+                        className="!h-10 !rounded-xl !px-3 !font-medium max-md:!px-2.5"
                         style={{ background: agentOpen ? theme.toolbar.activeBg : theme.toolbar.panel, color: theme.node.text, boxShadow: "0 10px 30px rgba(28,25,23,.10)" }}
                         icon={<Bot className="size-4" />}
+                        aria-label="Agent"
                         onClick={onToggleAgent}
                     >
-                        Agent
+                        <span className="max-md:hidden">Agent</span>
                     </Button>
                 </div>
             </div>
@@ -193,9 +194,9 @@ function CompactAgentStatus({ status, onClick }: { status: { connected: boolean;
     const label = status.connected ? t("canvas.agentConnected", { agent }) : status.enabled ? t("canvas.agentConnecting", { agent, activity: status.activity || t("canvas.connecting") }) : t("canvas.agentDisconnected", { agent });
     const dotColor = status.connected ? "#22c55e" : status.enabled ? "#f59e0b" : theme.node.muted;
     return (
-        <button type="button" className="flex h-8 items-center gap-1.5 text-xs transition hover:opacity-75" style={{ color: status.connected ? "#16a34a" : status.enabled ? "#d97706" : theme.node.muted }} onClick={onClick} title={t("canvas.openAgent")}>
+        <button type="button" className="flex h-8 shrink-0 items-center gap-1.5 text-xs transition hover:opacity-75" aria-label={label} style={{ color: status.connected ? "#16a34a" : status.enabled ? "#d97706" : theme.node.muted }} onClick={onClick} title={t("canvas.openAgent")}>
             <span className="size-2 rounded-full" style={{ background: dotColor }} />
-            <span className="max-w-[140px] truncate">{label}</span>
+            <span className="max-w-[140px] truncate max-md:hidden">{label}</span>
         </button>
     );
 }

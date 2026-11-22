@@ -9,6 +9,7 @@ import { getNodeSpec } from "@/constant/canvas";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { useTranslation } from "react-i18next";
+import { useNarrowScreen } from "@/hooks/use-narrow-screen";
 
 export function CanvasToolbar({
     selectedCount,
@@ -58,6 +59,7 @@ export function CanvasToolbar({
     onFocusSelected: () => void;
 }) {
     const wrapRef = useRef<HTMLDivElement>(null);
+    const narrow = useNarrowScreen();
     const { t } = useTranslation();
     const rootRef = useRef<HTMLDivElement>(null);
     const colorTheme = useThemeStore((state) => state.theme);
@@ -91,9 +93,9 @@ export function CanvasToolbar({
     }, [extensionsOpen, appearanceOpen]);
 
     return (
-        <div ref={rootRef} className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }} data-canvas-bottom-toolbar>
+        <div ref={rootRef} className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: narrow ? 12 : 300, right: narrow ? 12 : 16 }} data-canvas-bottom-toolbar>
             {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
-            <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
+            <div ref={wrapRef} data-canvas-no-zoom className="thin-scrollbar pointer-events-auto flex h-14 max-w-full items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
                 <ToolbarButton id={`tool-${canvasTool}`} label={t(`canvas.toolbar.${canvasTool}`)} active hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={() => onCanvasToolChange(canvasTool === "select" ? "pan" : "select")}>
                     {canvasTool === "select" ? <MousePointer2 className="size-4.5" /> : <Hand className="size-4.5" />}
                 </ToolbarButton>
