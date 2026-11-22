@@ -62,6 +62,15 @@ describe("渠道测试连接", () => {
         expect(isNetworkErrorMessage("bad key")).toBe(false);
     });
 
+    test("200 但不是模型列表时算失败，空列表算成功", async () => {
+        mockFetch(() => new Response("<html>login</html>", { headers: { "content-type": "text/html" } }));
+        const html = await testChannelConnection(createModelChannel({ apiFormat: "anthropic", apiKey: "k" }));
+        expect(html.ok).toBe(false);
+        mockFetch(() => new Response(JSON.stringify({ data: [], has_more: false }), { headers: { "content-type": "application/json" } }));
+        const empty = await testChannelConnection(createModelChannel({ apiFormat: "anthropic", apiKey: "k" }));
+        expect(empty.ok && empty.modelCount).toBe(0);
+    });
+
     test("服务端报错时显示原因，不算网络错误", async () => {
         mockFetch(() => new Response(JSON.stringify({ type: "error", error: { message: "invalid x-api-key" } }), { status: 401 }));
         const result = await testChannelConnection(createModelChannel({ apiFormat: "anthropic", apiKey: "bad" }));

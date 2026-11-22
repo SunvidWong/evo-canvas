@@ -1,6 +1,6 @@
 import { Button, Drawer, Input, InputNumber, Segmented, Select, Space } from "antd";
 import { CheckCircle2, ListPlus, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
@@ -28,14 +28,21 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
 
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<ChannelTestResult | null>(null);
+    /** 每次发起测试或配置变化都换一个编号，过期的测试结果不再写回。 */
+    const testRun = useRef(0);
+    const resetTest = () => {
+        testRun.current += 1;
+        setTesting(false);
+        setTestResult(null);
+    };
 
     useEffect(() => {
         if (open && channel) setDraft(channel);
-        setTestResult(null);
+        resetTest();
     }, [open, channel]);
 
-    // 地址、Key 或协议改了，上次的测试结果就不再适用。
-    useEffect(() => setTestResult(null), [draft?.baseUrl, draft?.apiKey, draft?.apiFormat]);
+    // 地址、Key 或协议改了，上次的测试结果（包括还没返回的）就不再适用。
+    useEffect(resetTest, [draft?.baseUrl, draft?.apiKey, draft?.apiFormat]);
 
     if (!draft) return null;
 
@@ -78,12 +85,13 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const removeModel = (name: string) => setModels(draft.models.filter((model) => model.name !== name));
 
     const runTest = async () => {
+        const run = ++testRun.current;
         setTesting(true);
-        try {
-            setTestResult(await testChannelConnection(draft));
-        } finally {
-            setTesting(false);
-        }
+        setTestResult(null);
+        const result = await testChannelConnection(draft);
+        if (run !== testRun.current) return;
+        setTestResult(result);
+        setTesting(false);
     };
 
     const save = () => {
