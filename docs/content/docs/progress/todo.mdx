@@ -5,5 +5,30 @@ description: Planned follow-up work
 
 # TODO
 
-- Replace the Claude Code CLI adapter with a Claude Agent SDK adapter and improve the tool queue, following the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan).
-- Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.
+Follow-up work, grouped by milestone. Items marked "To confirm" need a decision before work starts.
+
+## M2 Claude support
+
+Following phase three of the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan):
+
+- Replace the Claude Code CLI adapter with a Claude Agent SDK adapter that supports session resume, interruption and the `infinite-canvas` MCP.
+- Map Claude messages and tool calls to the same structured events as Codex, keyed by `threadId`, `turnId` and `itemId`, reusing the existing history and message metadata storage.
+- Add a Codex / Claude selector to the sidebar (the frontend does not call `/agent/claude/turn` yet). To confirm: whether conversation history for both agents is shown together or separately.
+
+## M3 Agent experience
+
+- Batch tool queue: in manual confirmation mode, turn the single `pendingTool` into a queue with approve all, reject all and per-item handling, executed in order and shared by Codex and Claude. To confirm: queue size limit and wait timeout.
+- Common canvas action templates: preset templates in the Agent composer that include the selected node references, plus custom templates. To confirm: whether Skills should replace them.
+
+## M4 Agent Skills
+
+- Install Skills from the web: download from GitHub and similar sources, validate `SKILL.md`, preview, then write into `.agents/skills` using the existing path checks. To confirm: supported sources and download size limit.
+- Skill resource files: view, upload and delete scripts and reference files in Skill details, without writing outside the Skill folder.
+- Controlled local memory: written only after the Agent proposes and the user confirms; viewable, editable and deletable; injected into conversations behind a toggle. To confirm: global memory or per-canvas memory.
+
+## Other items to confirm
+
+- Whether Agent undo should join the canvas Ctrl+Z history: they are separate today, and Agent undo is triggered only from the tool card.
+- Whether sub-path deployment (`VITE_BASE`) is needed: the plugin manifest and model icons are still requested from the root path `/`, so sub-path support needs those changed too.
+- Whether mobile touch improvements join the plan.
+- Whether to finish translating the remaining modules (WebDAV errors, prompt sources, etc.).

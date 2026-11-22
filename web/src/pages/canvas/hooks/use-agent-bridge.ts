@@ -74,7 +74,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
         [projectTitle, projectId],
     );
     const undoAgentOps = useCallback(() => {
-        if (!agentUndoSnapshot) return null;
+        if (agentUndoSnapshot?.projectId !== projectId) return null;
         nodesRef.current = agentUndoSnapshot.nodes;
         connectionsRef.current = agentUndoSnapshot.connections;
         selectedNodeIdsRef.current = new Set(agentUndoSnapshot.selectedNodeIds);
@@ -90,9 +90,9 @@ export function useAgentBridge(params: AgentBridgeParams) {
     }, [agentUndoSnapshot, projectTitle, projectId]);
 
     useEffect(() => {
-        setAgentCanvasContext({ snapshot: agentSnapshot, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: Boolean(agentUndoSnapshot) });
+        setAgentCanvasContext({ snapshot: agentSnapshot, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: agentUndoSnapshot?.projectId === projectId });
         return () => setAgentCanvasContext(null);
-    }, [agentSnapshot, applyAgentOps, agentUndoSnapshot, setAgentCanvasContext, undoAgentOps]);
+    }, [agentSnapshot, applyAgentOps, agentUndoSnapshot, projectId, setAgentCanvasContext, undoAgentOps]);
 
     return { applyAgentOps };
 }

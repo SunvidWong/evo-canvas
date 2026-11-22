@@ -53,7 +53,7 @@ export type AgentEventItem = {
     savedPath?: unknown;
     revisedPrompt?: unknown;
 };
-export type AgentUserDetail = { kind: string; status: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
+export type AgentUserDetail = { kind: string; status: string; tool?: string; rows?: Array<{ label: string; value: string }>; output?: string; files?: Array<{ path: string; action?: string }>; tasks?: Array<{ step: string; status: string }>; explanation?: string };
 
 export type AgentLogContext = { endpoint: string; connected: boolean; enabled: boolean; activity: string; waiting: boolean; sending: boolean; messages: number; pendingTool?: string };
 
@@ -353,11 +353,11 @@ function isMcpToolItem(item?: AgentEventItem): item is AgentEventItem & { type: 
 
 export function toolDetail(item: AgentEventItem | undefined, status: string): AgentUserDetail {
     const name = String(item?.tool || "");
-    return { kind: "tool", status, rows: toolInputRows(name, item?.arguments), ...(item?.error?.message ? { output: item.error.message } : {}) };
+    return { kind: "tool", status, tool: name, rows: toolInputRows(name, item?.arguments), ...(item?.error?.message ? { output: item.error.message } : {}) };
 }
 
 export function toolCallDetail(name: string, input: unknown, status: string, error = ""): AgentUserDetail {
-    return { kind: "tool", status, rows: toolInputRows(name, input), ...(error ? { output: error } : {}) };
+    return { kind: "tool", status, tool: name, rows: toolInputRows(name, input), ...(error ? { output: error } : {}) };
 }
 
 function toolInputRows(name: string, input: unknown) {
@@ -502,6 +502,13 @@ export function attachmentPayloadBytes(attachments: AgentAttachment[]) {
 
 export function formatBytes(bytes: number) {
     return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(bytes / 1024)}KB`;
+}
+
+const CANVAS_READ_TOOLS = new Set(["canvas_get_state", "canvas_get_selection", "canvas_export_snapshot", "canvas_list_projects"]);
+
+/** 会改动画布的 MCP 工具：上层工具（建节点、移动、删除等）在服务端都会转成 canvas_apply_ops 执行。 */
+export function isCanvasMutationTool(name: string) {
+    return name.startsWith("canvas_") && !CANVAS_READ_TOOLS.has(name);
 }
 
 export function isCanvasWriteTool(name: string) {

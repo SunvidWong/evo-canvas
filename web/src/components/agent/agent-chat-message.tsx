@@ -1,6 +1,6 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type MouseEvent, type ReactNode } from "react";
 import { App, Button, Image, Modal, Popover } from "antd";
-import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, ExternalLink, FilePenLine, FileText, FolderOpen, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Wrench, XCircle } from "lucide-react";
+import { Brain, CheckCircle2, ChevronDown, ChevronRight, Circle, CircleAlert, Copy, ExternalLink, FilePenLine, FileText, FolderOpen, ListChecks, LoaderCircle, Search, ShieldAlert, TerminalSquare, Undo2, Wrench, XCircle } from "lucide-react";
 import { Streamdown, type LinkSafetyModalProps } from "streamdown";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentStore, type AgentCanvasReference, type AgentPendingApproval, type AgentSkillReference } from "@/stores/use-agent-store";
 import { resolveAgentMessageAssetUrl, revealAgentLocalFile } from "@/services/api/canvas-agent";
 import { AgentCanvasReferencePreview, canvasReferenceIcon, canvasReferenceKindLabel } from "./agent-canvas-reference-preview";
+import { isCanvasMutationTool } from "./agent-event-formatters";
 import { agentInlineTokenClass, agentInlineTokenIconClass, agentInlineTokenMediaClass, agentReferenceMarker, parseAgentInlineTokens } from "./agent-chat-inline-tokens";
 
 const streamdownProps = () => ({
@@ -118,7 +119,7 @@ export function AgentChatMessage({ item, theme, onRejectTool, onApproveTool }: {
     }
     if (item.role === "tool") {
         if (objectField(item.detail, "status") === "pending") return <AgentPendingToolCard summary={item.text} detail={item.detail} theme={theme} onReject={() => onRejectTool?.(item.id)} onApprove={() => onApproveTool?.(item.id)} />;
-        return <AgentToolCard title={item.title || tr("toolCall")} text={item.text} detail={item.detail} theme={theme} />;
+        return <AgentToolCard itemId={item.id} title={item.title || tr("toolCall")} text={item.text} detail={item.detail} theme={theme} />;
     }
     return (
         <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -239,7 +240,7 @@ export function AgentApprovalCard({ approval, theme, onDecision }: { approval: A
     );
 }
 
-export function AgentToolCard({ title, text, detail, theme }: { title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+export function AgentToolCard({ itemId, title, text, detail, theme }: { itemId?: string; title: string; text: string; detail?: unknown; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
     const plan = planDetail(detail);
     if (plan) return <AgentPlanCard title={title} plan={plan} theme={theme} />;
     const kind = String(objectField(detail, "kind") || "");
@@ -256,6 +257,7 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
                 <span className="shrink-0" style={{ color: state.color }}>{toolIcon(kind, state.icon)}</span>
                 <span className="min-w-0 truncate font-medium">{title}</span>
                 <span className="shrink-0 text-[11px]" style={{ color: state.color }}>{state.label}</span>
+                {itemId && isCanvasMutationTool(String(objectField(detail, "tool") || "")) && objectField(detail, "status") === "completed" ? <AgentCanvasUndoButton itemId={itemId} theme={theme} /> : null}
                 {view ? <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-open:rotate-180" style={{ color: theme.node.muted }} /> : null}
             </div>
             {showText ? (
@@ -271,6 +273,34 @@ export function AgentToolCard({ title, text, detail, theme }: { title: string; t
             <summary className="list-none cursor-pointer">{content}</summary>
             <div className="ml-6"><AgentDetailBlock detail={view} theme={theme} /></div>
         </details>
+    );
+}
+
+/** Undo the latest canvas write from the Agent; only the card that produced the current undo snapshot is enabled. */
+function AgentCanvasUndoButton({ itemId, theme }: { itemId: string; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+    const { t } = useTranslation();
+    const { message } = App.useApp();
+    const enabled = useAgentStore((state) => state.canvasUndoItemId === itemId && Boolean(state.canvasContext?.canUndo));
+    const undo = (event: MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const state = useAgentStore.getState();
+        if (state.canvasUndoItemId !== itemId || !state.canvasContext?.undoOps()) return;
+        state.setAgentState({ canvasUndoItemId: "" });
+        message.success(t("agent.message.canvasUndone"));
+    };
+    return (
+        <button
+            type="button"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition-colors enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:enabled:hover:bg-white/10"
+            style={{ color: theme.node.muted }}
+            disabled={!enabled}
+            title={enabled ? undefined : t("agent.message.canvasUndoUnavailable")}
+            onClick={undo}
+        >
+            <Undo2 className="size-3.5" />
+            {t("agent.message.undoCanvasOps")}
+        </button>
     );
 }
 

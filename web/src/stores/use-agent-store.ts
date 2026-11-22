@@ -49,6 +49,8 @@ type AgentStore = {
     panelMounted: boolean;
     panelClosing: boolean;
     canvasContext: AgentCanvasContext | null;
+    /** Chat tool card that the current canvas undo snapshot belongs to; empty when no card can undo. */
+    canvasUndoItemId: string;
     url: string;
     token: string;
     connected: boolean;
@@ -101,6 +103,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     panelMounted: true,
     panelClosing: false,
     canvasContext: null,
+    canvasUndoItemId: "",
     url: typeof window === "undefined" ? "http://127.0.0.1:17371" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371",
     token: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-token") || "",
     connected: false,

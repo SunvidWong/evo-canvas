@@ -36,6 +36,14 @@ Connect token: xxxxxx
 
 在画布右上角点击 `Agent`，填入地址和 token 后连接。
 
+token 保存在 `~/.infinite-canvas/canvas-agent.json`，重启不变。需要换新 token（例如 token 泄露）时，带 `--reset-token` 启动：
+
+```bash
+node dist/index.js --reset-token
+```
+
+旧 token 立即失效，已连接的网页需要用新 token 重新连接。
+
 Codex app 插件会读取启动输出里的 Local URL 和 Connect token，并直接打开画布网页地址；Canvas Agent 不负责生成画布打开 URL。
 
 Canvas Agent 默认只监听 `127.0.0.1`。网页第一次带正确 token 连接后，Canvas Agent 会记录该网页 Origin；之后其他 Origin 不能复用这个本地 Agent，除非用户清理 `~/.infinite-canvas/canvas-agent.json` 里的 `origins`。

@@ -38,6 +38,8 @@ description: Major features available in the current project
 - Read the active canvas, selection, nodes, edges, generation status, and apply structured operations.
 - Use Codex from the browser side panel with streaming responses, history, approvals, permissions, diagnostics, and local Skills.
 - Isolate active canvases and turns across multiple browser tabs.
+- Undo the latest Agent canvas write from its tool card.
+- Start Canvas Agent with `--reset-token` to generate a new connection token.
 
 See [Codex App Plugin](/docs/overview/codex-app-plugin) for installation and usage.
 
@@ -64,4 +66,3 @@ See [Third-party Prompt Sources](/docs/overview/third-party-prompt-repositories)
 
 - The project is frontend-first and does not provide built-in cloud accounts or cloud storage.
 - API keys remain in browser storage and requests are sent directly to configured providers.
-- Production Docker static-resource paths still require broader deployment verification.

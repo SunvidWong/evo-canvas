@@ -508,7 +508,7 @@ function commandDetail(item: unknown) {
 
 /** 生成 MCP 工具的用户可读详情。 */
 function toolHistoryDetail(tool: string, item: unknown, input: unknown, error: string) {
-    return { kind: "tool", status: itemStatus(item, error), rows: toolInputRows(tool, input), ...(error ? { output: error } : {}) };
+    return { kind: "tool", status: itemStatus(item, error), tool, rows: toolInputRows(tool, input), ...(error ? { output: error } : {}) };
 }
 
 function itemErrorMessage(item: unknown) {

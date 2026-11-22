@@ -41,6 +41,7 @@ import {
     formatAgentPlan,
     formatBytes,
     bindPendingTurnMessages,
+    isCanvasMutationTool,
     isCanvasWriteTool,
     isConnectionErrorMessage,
     isCurrentThreadEvent,
@@ -178,6 +179,9 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const canvasContextRef = useRef<AgentCanvasContext | null>(useAgentStore.getState().canvasContext);
     const confirmToolsRef = useRef(confirmTools);
     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
+    // Set after this tab applies canvas ops; the next completed canvas tool card claims the undo button.
+    // Higher-level tools reach the browser as canvas_apply_ops, so the card's tool name is not compared.
+    const pendingUndoToolRef = useRef(false);
     const autoConnectRef = useRef(false);
     const connectedRef = useRef(false);
     const errorLoggedRef = useRef(false);
@@ -804,6 +808,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         await runToolCall(endpoint, token, payload);
     };
 
+    const markUndoTool = () => {
+        pendingUndoToolRef.current = true;
+        setAgentState({ canvasUndoItemId: "" });
+    };
+
     const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
         if (isSiteTool(payload.name)) {
             try {
@@ -830,12 +839,14 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 const context = canvasContextRef.current;
                 if (!context) throw new Error(rt("openCanvasFirst"));
                 result = context.applyOps(appliedOps);
+                markUndoTool();
                 void postState(endpoint, token, clientIdRef.current, result as CanvasAgentSnapshot);
             } else if (payload.name === "canvas_create_attachment_nodes") {
                 const context = canvasContextRef.current;
                 if (!context) throw new Error(rt("openCanvasFirst"));
                 appliedOps = await attachmentNodeOps(endpoint, token, clientIdRef.current, payload.input?.nodes);
                 result = context.applyOps(appliedOps);
+                markUndoTool();
                 await postState(endpoint, token, clientIdRef.current, result as CanvasAgentSnapshot);
             } else {
                 const snapshot = canvasContextRef.current?.snapshot;
@@ -1273,6 +1284,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                         };
                     });
                     const result = context.applyOps(ops);
+                    pendingUndoToolRef.current = false;
+                    setAgentState({ canvasUndoItemId: "" });
                     void postState(endpoint, token, clientIdRef.current, result);
                 }
                 addEventLog(rt("importGeneratedImages"), rt(context ? "addedToSourceCanvas" : "imageGenerated"));
@@ -1280,6 +1293,10 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         }
         if (activity && event.item?.id) {
             upsertEventActivity(event, activity);
+            if (!event.replayed && event.type === "item.completed" && pendingUndoToolRef.current && isCanvasMutationTool(String(event.item.tool || ""))) {
+                pendingUndoToolRef.current = false;
+                setAgentState({ canvasUndoItemId: scopeEventChatItem(event, { id: event.item.id, role: "tool", text: "" }, event.item.id).id });
+            }
             return;
         }
         if (event.type === "turn.completed") {
