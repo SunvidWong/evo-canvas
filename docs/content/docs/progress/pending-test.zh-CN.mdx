@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- ComfyUI 同源代理：Docker 镜像用 `COMFYUI_URL=http://<ComfyUI 地址>:8188` 启动后，新建 ComfyUI 渠道，接口地址填 `/comfyui`。ComfyUI 不加 `--enable-cors-header` 时，测试连接、带参考图生成、从最近运行导入都应正常。`COMFYUI_URL` 格式不对（如带空格或 `;`）时不启用代理、日志里有提示，站点照常启动。不设置 `COMFYUI_URL` 时和原来一样。本地开发用 `COMFYUI_URL=... bun run dev` 时，`/comfyui` 同样能转发。
 - 模型能力识别：拉取模型后，默认能力应识别正确。生图：qwen-image、hunyuan-image、cogview、Kolors、即梦 jimeng、wanx2.1-t2i、flux-kontext、kling-*-image。视频：seedance、wan2.x-i2v/t2v、cogvideox、hunyuan-video、vidu、海螺 Hailuo、可灵 kling、LTXV。音频：cosyvoice、fish-speech、speech-02、suno。qwen-vl、glm、kimi、deepseek 等对话和看图模型仍为文本。
 - 从 ComfyUI 最近运行导入工作流：ComfyUI 渠道的「添加工作流」里有「从最近运行导入」按钮。点开后列出 ComfyUI 历史里最近 20 次运行，最新的在前，每条显示模型文件名（没有时显示采样器）、生图或视频、节点数和时间。点一条会填入 API 格式 JSON；生成过视频的工作流自动切到「视频」；名称为空时用模型文件名填上。保存后和粘贴的工作流用法一样。连不上 ComfyUI 时显示错误；没有运行记录时，提示先在 ComfyUI 里跑一次。
 - 渠道测试连接：编辑渠道里有「测试连接」按钮。OpenAI、OpenAI 兼容、Anthropic、Gemini 渠道请求模型列表，显示耗时和模型数；ComfyUI 渠道请求 `/system_stats`。Key 错误时显示服务商返回的原因；地址不通或被 CORS 拦截时，提示检查服务和跨域设置（ComfyUI 提示 `--enable-cors-header`）。必填的 Key 没填时，不发请求直接提示。改了地址、Key 或协议后，上一次的结果会清掉。

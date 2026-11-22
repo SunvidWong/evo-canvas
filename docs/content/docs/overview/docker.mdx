@@ -31,6 +31,27 @@ docker build --build-arg VITE_BASE=/canvas/ -t infinite-canvas .
 
 Routes, the plugin manifest and model icons all use this prefix. nginx inside the image still serves files from the root, so your reverse proxy should strip the `/canvas/` prefix before forwarding to the container, for example `location /canvas/ { proxy_pass http://127.0.0.1:3000/; }` in nginx. The GitHub Pages workflow uses the repository name as the sub-path automatically.
 
+## Connect to ComfyUI on your network (optional)
+
+When the browser calls ComfyUI on another machine directly, ComfyUI must be started with `--enable-cors-header` or the request is blocked by CORS. An easier option is to let the canvas container forward `/comfyui/` to ComfyUI, so the browser sees a single site:
+
+```yaml
+services:
+  app:
+    image: ghcr.io/basketikun/infinite-canvas:latest
+    ports:
+      - "3000:3000"
+    environment:
+      COMFYUI_URL: http://10.10.20.10:8188
+```
+
+Then add a ComfyUI provider under Settings → Providers and enter `/comfyui` as the address.
+
+- `COMFYUI_URL` only accepts `http(s)://host[:port][/path]`. An invalid value disables the proxy and logs a message in the container.
+- The proxy drops the browser's `Origin` header, because recent ComfyUI versions reject cross-origin submissions.
+- Reference image uploads up to 50 MB are allowed, and a single request can wait up to 300 seconds.
+- For local development, set the same variable: `COMFYUI_URL=http://10.10.20.10:8188 bun run dev`, and vite forwards `/comfyui`.
+
 ## Documentation image
 
 The documentation in `docs/` is a separate Next.js standalone application with server capabilities.

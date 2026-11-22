@@ -39,6 +39,27 @@ docker build --build-arg VITE_BASE=/canvas/ -t infinite-canvas .
 
 页面路由、插件清单、模型图标等都会带上这个前缀。镜像内的 nginx 仍在根路径提供文件，所以反向代理需要把 `/canvas/` 下的请求去掉前缀后转给容器，例如 nginx 的 `location /canvas/ { proxy_pass http://127.0.0.1:3000/; }`。GitHub Pages 部署会自动使用仓库名作为子路径。
 
+## 连接局域网里的 ComfyUI（可选）
+
+浏览器直接访问另一台机器上的 ComfyUI 时，需要 ComfyUI 用 `--enable-cors-header` 启动，否则请求会被跨域拦截。更省事的做法是让画布容器把 `/comfyui/` 转发给 ComfyUI，浏览器看到的就是同一个站点：
+
+```yaml
+services:
+  app:
+    image: ghcr.io/basketikun/infinite-canvas:latest
+    ports:
+      - "3000:3000"
+    environment:
+      COMFYUI_URL: http://10.10.20.10:8188
+```
+
+然后在「配置 → 渠道」新建 ComfyUI 渠道，接口地址填 `/comfyui`。
+
+- `COMFYUI_URL` 只接受 `http(s)://主机[:端口][/路径]`，格式不对时不会启用转发，容器日志里会有提示。
+- 转发时会去掉浏览器的 `Origin` 请求头，否则较新的 ComfyUI 会拒绝跨来源的提交。
+- 默认允许上传 50 MB 以内的参考图，单次请求最长等待 300 秒。
+- 本地开发时同样可以设置环境变量：`COMFYUI_URL=http://10.10.20.10:8188 bun run dev`，vite 会把 `/comfyui` 转发过去。
+
 ## 文档站镜像
 
 文档站位于 `docs/` 目录，按带服务端能力的 Next.js standalone 应用单独构建，不打进主应用镜像。

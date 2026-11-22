@@ -5,6 +5,9 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    # 连接局域网里的 ComfyUI（可选）：设置后渠道接口地址填 /comfyui，ComfyUI 无需开启跨域。
+    # environment:
+    #   COMFYUI_URL: http://10.10.20.10:8188
     # 统计分析（可选，默认关闭）。每家一个独立变量，填了谁就启用谁，可同时启用多家：
     # environment:
     #   ANALYTICS_GA4_ID: G-XXXXXXXXXX                    # Google Analytics 4 衡量 ID
