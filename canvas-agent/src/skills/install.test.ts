@@ -219,3 +219,12 @@ test("域名解析到内网地址时拒绝下载，解析失败时交给代理",
     const files = await downloadUrlSkill(new URL("https://proxy-only.example.com/SKILL.md"), fetcher, async () => { throw new Error("ENOTFOUND"); });
     assert.equal(files[0].path, "SKILL.md");
 });
+
+test("域名解析卡住时按下载时限返回超时", async () => {
+    let fetched = false;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), 50);
+    const pending = downloadUrlSkill(new URL("https://slow.example.com/SKILL.md"), async () => (fetched = true, new Response(skillMd)), () => new Promise(() => undefined), controller.signal);
+    await assert.rejects(pending, /超时/);
+    assert.equal(fetched, false);
+});

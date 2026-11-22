@@ -53,12 +53,11 @@ export async function downloadSkill(source: SkillInstallSource, fetcher: Fetcher
  * 下载任意 https 链接：内容是 zip 时解压出含 SKILL.md 的目录，否则当作 SKILL.md 本身。
  * 边界与 GitHub 相同；下载过程中超过合计上限立即中止，zip 按目录记录的大小先检查再解压。
  */
-export async function downloadUrlSkill(url: URL, fetcher: Fetcher = fetch, resolve: Resolver = defaultResolver): Promise<SkillInstallFile[]> {
-    const signal = AbortSignal.timeout(SKILL_INSTALL_LIMITS.timeoutMs);
+export async function downloadUrlSkill(url: URL, fetcher: Fetcher = fetch, resolve: Resolver = defaultResolver, signal: AbortSignal = AbortSignal.timeout(SKILL_INSTALL_LIMITS.timeoutMs)): Promise<SkillInstallFile[]> {
     let current = url;
     let response: Response | undefined;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-        await assertPublicDestination(current, resolve);
+        await assertPublicDestination(current, resolve, signal);
         response = await request(fetcher, current.href, signal, { "user-agent": "canvas-agent" }, "manual", "下载地址");
         if (response.status < 300 || response.status >= 400) break;
         const location = response.headers.get("location");
@@ -227,14 +226,21 @@ function assertPublicHost(url: URL) {
  * 每次请求前（包括每一跳重定向）检查域名解析结果，任何一个地址落在内网就拒绝。
  * 本机无法解析（例如只能经代理上网）时放行，由代理去解析；解析和实际连接之间的 DNS 重绑定这里防不住。
  */
-async function assertPublicDestination(url: URL, resolve: Resolver) {
+async function assertPublicDestination(url: URL, resolve: Resolver, signal: AbortSignal) {
     assertPublicHost(url);
     const host = url.hostname.replace(/^\[|\]$/g, "");
     if (net.isIP(host)) return;
     let addresses: string[];
     try {
-        addresses = await resolve(host);
+        // 解析也计入 30 秒下载时限，解析卡住时按超时返回。
+        addresses = await new Promise<string[]>((resolvePromise, reject) => {
+            if (signal.aborted) return reject(signal.reason);
+            const onAbort = () => reject(signal.reason);
+            signal.addEventListener("abort", onAbort, { once: true });
+            resolve(host).then(resolvePromise, reject).finally(() => signal.removeEventListener("abort", onAbort));
+        });
     } catch {
+        if (signal.aborted) throw new SkillStoreError("下载超时（30 秒），请稍后重试", 409);
         return;
     }
     if (addresses.some(isPrivateAddress)) throw new SkillStoreError(`域名 ${host} 指向本机或局域网地址，不能从这里安装 Skill`, 400);
