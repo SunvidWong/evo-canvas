@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
+import { useCanvasTouch } from "./use-canvas-touch";
 
 type InfiniteCanvasProps = {
     containerRef: React.RefObject<HTMLDivElement | null>;
@@ -35,6 +36,7 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     const [isSpacePressed, setIsSpacePressed] = useState(false);
     const [isControlPressed, setIsControlPressed] = useState(false);
     const [isPanning, setIsPanning] = useState(false);
+    useCanvasTouch({ containerRef, viewport, onViewportChange, onCanvasDeselect });
 
     useEffect(() => {
         scaleRef.current = viewport.k;
@@ -210,8 +212,10 @@ export function InfiniteCanvas({ containerRef, viewport, tool, backgroundMode = 
     return (
         <div
             ref={containerRef}
+            data-canvas-touch-root
             className="relative h-full w-full select-none overflow-hidden"
-            style={{ background: theme.canvas.background, cursor }}
+            // 触摸手势由 useCanvasTouch 处理，禁止浏览器把拖动和双指当成页面滚动或缩放。
+            style={{ background: theme.canvas.background, cursor, touchAction: "none" }}
             onPointerDown={handlePointerDown}
             onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}

@@ -607,3 +607,13 @@
     border-radius: 0.6rem;
     font-size: 0.75rem;
 }
+
+/* 画布触控：节点内部的滚动区域会重置 touch-action，这里统一交给画布手势处理；输入框和显式标记的区域保留原生滚动。 */
+[data-canvas-touch-root] [data-node-id],
+[data-canvas-touch-root] [data-node-id] * {
+    touch-action: none;
+}
+[data-canvas-touch-root] :is(input, textarea, select, [contenteditable="true"], [data-canvas-no-zoom]),
+[data-canvas-touch-root] :is(textarea, [contenteditable="true"], [data-canvas-no-zoom]) * {
+    touch-action: auto;
+}
