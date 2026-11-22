@@ -29,6 +29,16 @@ http://localhost:3000
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
+## 部署在子路径
+
+默认部署在站点根路径 `/`。如果要放在子路径下（例如 `https://example.com/canvas/`），构建时传入 `VITE_BASE`，以 `/` 开头和结尾：
+
+```bash
+docker build --build-arg VITE_BASE=/canvas/ -t infinite-canvas .
+```
+
+页面路由、插件清单、模型图标等都会带上这个前缀。镜像内的 nginx 仍在根路径提供文件，所以反向代理需要把 `/canvas/` 下的请求去掉前缀后转给容器，例如 nginx 的 `location /canvas/ { proxy_pass http://127.0.0.1:3000/; }`。GitHub Pages 部署会自动使用仓库名作为子路径。
+
 ## 文档站镜像
 
 文档站位于 `docs/` 目录，按带服务端能力的 Next.js standalone 应用单独构建，不打进主应用镜像。

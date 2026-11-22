@@ -21,6 +21,16 @@ Open `http://localhost:3000`.
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
+## Deploy under a sub-path
+
+By default the app is served from the site root `/`. To serve it under a sub-path such as `https://example.com/canvas/`, pass `VITE_BASE` at build time, starting and ending with `/`:
+
+```bash
+docker build --build-arg VITE_BASE=/canvas/ -t infinite-canvas .
+```
+
+Routes, the plugin manifest and model icons all use this prefix. nginx inside the image still serves files from the root, so your reverse proxy should strip the `/canvas/` prefix before forwarding to the container, for example `location /canvas/ { proxy_pass http://127.0.0.1:3000/; }` in nginx. The GitHub Pages workflow uses the repository name as the sub-path automatically.
+
 ## Documentation image
 
 The documentation in `docs/` is a separate Next.js standalone application with server capabilities.

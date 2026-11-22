@@ -7,6 +7,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --cache-dir=/
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
+# 部署在子路径（例如 /canvas/）时构建传入 --build-arg VITE_BASE=/canvas/，默认根路径。
+ARG VITE_BASE=/
+ENV VITE_BASE=$VITE_BASE
 RUN bun run build
 
 # 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
