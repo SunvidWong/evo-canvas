@@ -548,7 +548,7 @@ export default {
                 gemini: "Google Gemini 接口，支持文本、生图和视频。",
                 comfyui: "连接本机或局域网的 ComfyUI，每个「模型」对应一份导出的 API 格式工作流，用于生图或视频。",
             },
-            maxTokens: "回复长度上限（token，可选）", maxTokensPlaceholder: "不填由服务商决定", maxTokensHint: "只影响文本对话，超过上限时回复会被截断。", maxTokensHintAnthropic: "Claude 接口必须指定上限，不填时用 {{limit}}；超过上限时回复末尾会提示被截断。", apiKeyOptional: "API Key（可选）",
+            maxTokens: "回复长度上限（token，可选）", maxTokensPlaceholder: "不填由服务商决定", maxTokensHint: "只影响文本对话，超过上限时回复会被截断。", maxTokensHintAnthropic: "Claude 接口必须指定上限，不填时用 {{limit}}；超过上限时回复末尾会提示被截断。", testConnection: "测试连接", testOk: "连接成功（{{ms}} ms）", testOkModels: "连接成功（{{ms}} ms），可用模型 {{count}} 个", testFailed: "连接失败：{{message}}", testNetworkHint: "浏览器没能连上这个地址。请检查地址是否正确、服务是否已启动；如果服务没有开放跨域（CORS），浏览器也会拦截，可以改用开启了 CORS 的地址或同源代理。", testNetworkHintComfy: "浏览器没能连上 ComfyUI。请确认地址正确、ComfyUI 已启动，并用 --enable-cors-header 参数启动（或走同源代理 /comfyui）。", apiKeyOptional: "API Key（可选）",
             apiKeyOptionalPlaceholder: "本地服务一般不需要",
             addWorkflow: "添加工作流",
             workflowDescription: "已添加 {{count}} 个工作流；每个工作流在画布里作为一个模型使用。",

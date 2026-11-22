@@ -1,10 +1,11 @@
 import { Button, Drawer, Input, InputNumber, Segmented, Select, Space } from "antd";
-import { ListPlus, Plus, Trash2, Workflow } from "lucide-react";
+import { CheckCircle2, ListPlus, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
 import { ANTHROPIC_MAX_TOKENS } from "@/services/api/anthropic";
+import { testChannelConnection, type ChannelTestResult } from "@/services/api/channel-test";
 import { API_CALL_FORMATS, apiFormatName, channelNeedsApiKey, normalizeMaxTokens, defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { ComfyWorkflowEditor, type ComfyWorkflowDraft } from "./comfy-workflow-editor";
 import { ModelScriptEditor } from "./model-script-editor";
@@ -25,9 +26,16 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     }));
     const capabilityOptions: Array<{ label: string; value: ModelCapability }> = ["image", "video", "text", "audio"].map((value) => ({ label: t(`config.channelEditor.capabilities.${value}`), value: value as ModelCapability }));
 
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<ChannelTestResult | null>(null);
+
     useEffect(() => {
         if (open && channel) setDraft(channel);
+        setTestResult(null);
     }, [open, channel]);
+
+    // 地址、Key 或协议改了，上次的测试结果就不再适用。
+    useEffect(() => setTestResult(null), [draft?.baseUrl, draft?.apiKey, draft?.apiFormat]);
 
     if (!draft) return null;
 
@@ -68,6 +76,15 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
     const setCapability = (name: string, capability: ModelCapability) => setModels(draft.models.map((model) => (model.name === name ? { ...model, capability } : model)));
     const setScript = (name: string, script: string) => setModels(draft.models.map((model) => (model.name === name ? { ...model, script: script || undefined } : model)));
     const removeModel = (name: string) => setModels(draft.models.filter((model) => model.name !== name));
+
+    const runTest = async () => {
+        setTesting(true);
+        try {
+            setTestResult(await testChannelConnection(draft));
+        } finally {
+            setTesting(false);
+        }
+    };
 
     const save = () => {
         onSave({ ...draft, name: draft.name.trim() || t("config.channels.unnamed"), models: normalizeChannelModels(draft.models) });
@@ -135,6 +152,24 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                         <span className="mt-1 block text-xs text-stone-500">{t(draft.apiFormat === "anthropic" ? "config.channelEditor.maxTokensHintAnthropic" : "config.channelEditor.maxTokensHint", { limit: ANTHROPIC_MAX_TOKENS })}</span>
                     </label>
                 )}
+                <div className="flex flex-wrap items-start gap-3 md:col-span-2">
+                    <Button icon={<Plug className="size-4" />} loading={testing} onClick={() => void runTest()}>
+                        {t("config.channelEditor.testConnection")}
+                    </Button>
+                    {testResult ? (
+                        <div role="status" className={`min-w-0 flex-1 text-sm leading-6 ${testResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                            <span className="inline-flex items-center gap-1">
+                                {testResult.ok ? <CheckCircle2 className="size-4 shrink-0" /> : <XCircle className="size-4 shrink-0" />}
+                                {testResult.ok
+                                    ? testResult.modelCount === undefined
+                                        ? t("config.channelEditor.testOk", { ms: testResult.elapsedMs })
+                                        : t("config.channelEditor.testOkModels", { ms: testResult.elapsedMs, count: testResult.modelCount })
+                                    : t("config.channelEditor.testFailed", { message: testResult.message })}
+                            </span>
+                            {!testResult.ok && testResult.network ? <span className="block text-xs text-stone-500">{t(isComfy ? "config.channelEditor.testNetworkHintComfy" : "config.channelEditor.testNetworkHint")}</span> : null}
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
             <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
