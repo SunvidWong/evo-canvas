@@ -3,7 +3,8 @@ import test from "node:test";
 
 import type { SDKMessage, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import { ClaudeEventMapper, claudeHistoryTurns } from "./claude.js";
+import { applyTurnOutcomes, ClaudeEventMapper, claudeHistoryTurns, persistTurnOutcome } from "./claude.js";
+import type { CodexSupplementalHistoryTurn } from "./codex-history.js";
 import { threadMessages } from "./codex-history.js";
 
 const toolUse = { type: "tool_use", id: "toolu_1", name: "mcp__infinite-canvas__canvas_apply_ops", input: { ops: [] } };
@@ -79,4 +80,31 @@ test("Claude 历史记录的消息 ID 与实时事件一致", () => {
     const live = liveEvents(streamAndMessages).filter((event) => event.type === "item.completed").map((event) => event.item.id);
     assert.deepEqual(live, ["msg_a:0", "toolu_1", "msg_b:0"]);
     assert.equal(messages.find((message) => message.itemId === "toolu_1")!.role, "tool");
+});
+
+test("Claude 失败的 turn 刷新后仍保留失败状态和错误提示", async () => {
+    const recorded: CodexSupplementalHistoryTurn[] = [];
+    const store = { recordTurn: async (entry: CodexSupplementalHistoryTurn) => void recorded.push(entry) };
+    await persistTurnOutcome("s1", "turn-1", { status: "completed", error: "" }, store);
+    assert.equal(recorded.length, 0);
+    await persistTurnOutcome("s1", "turn-1", { status: "failed", error: "Claude 运行失败：网络断开" }, store);
+    const entry = (type: SessionMessage["type"], uuid: string, message: unknown): SessionMessage => ({ type, uuid, session_id: "s1", message, parent_tool_use_id: null, parent_agent_id: null });
+    const turns = applyTurnOutcomes(claudeHistoryTurns([entry("user", "turn-1", { role: "user", content: "整理画布" })]), recorded);
+    assert.deepEqual(turns.map((turn) => [turn.id, turn.status]), [["turn-1", "failed"]]);
+    const error = threadMessages({ id: "s1", turns }).find((message) => message.role === "error")!;
+    assert.equal(error.id, "s1:turn-1:synthetic:error");
+    assert.equal(error.text, "Claude 运行失败：网络断开");
+});
+
+test("Claude turn 在保存终态后才发出 turn.completed", () => {
+    const events: Array<Record<string, any>> = [];
+    const mapper = new ClaudeEventMapper((type, payload) => type === "agent_event" && events.push(payload as Record<string, any>));
+    mapper.start();
+    mapper.handle({ type: "result", subtype: "error_during_execution", is_error: true, errors: ["boom"] } as unknown as SDKMessage);
+    mapper.settle("completed");
+    assert.equal(events.some((event) => event.type === "turn.completed"), false);
+    assert.deepEqual(mapper.outcome, { status: "failed", error: "boom" });
+    mapper.complete();
+    mapper.complete();
+    assert.equal(events.filter((event) => event.type === "turn.completed").length, 1);
 });

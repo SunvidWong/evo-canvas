@@ -6,7 +6,8 @@ import { toolDescriptions, toolInputSchemas, toolNames } from "../canvas/schemas
 import { AGENT_PROMPT } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { errorMessage } from "../utils/value.js";
-import { threadMessages } from "./codex-history.js";
+import { codexEventHistory } from "./codex-event-history.js";
+import { threadMessages, type CodexSupplementalHistoryTurn } from "./codex-history.js";
 import { messageMetadataStore } from "./message-metadata.js";
 import type { AgentAttachment, AgentEmit } from "./types.js";
 
@@ -16,7 +17,10 @@ const MCP_PREFIX = `mcp__${CLAUDE_MCP_SERVER}__`;
 type JsonRecord = Record<string, unknown>;
 type ToolItem = { id: string; type: string; server: string; tool: string; arguments: unknown; status: string; result?: unknown; error?: { message: string } };
 type HistoryItem = JsonRecord & { id: string; type: string };
-type HistoryTurn = { id: string; status: string; items: HistoryItem[] };
+type HistoryTurn = { id: string; status: string; items: HistoryItem[]; error?: { message: string } };
+type TurnStatus = "completed" | "failed" | "interrupted";
+/** 只需持久化 Claude 会话记录里看不出来的失败、中断终态。 */
+type TurnHistoryStore = Pick<typeof codexEventHistory, "recordTurn">;
 
 export type ClaudeTurnOptions = {
     threadId: string;
@@ -63,17 +67,40 @@ export async function runClaudeTurn(options: ClaudeTurnOptions) {
             },
         });
         for await (const message of stream) mapper.handle(message);
-        mapper.finish(abort.signal.aborted ? "interrupted" : "completed");
+        mapper.settle(abort.signal.aborted ? "interrupted" : "completed");
     } catch (error) {
-        if (abort.signal.aborted) mapper.finish("interrupted");
+        if (abort.signal.aborted) mapper.settle("interrupted");
         else {
             logger.warn("Claude turn failed", { threadId, turnId, error });
-            mapper.finish("failed", claudeErrorMessage(error));
+            mapper.settle("failed", claudeErrorMessage(error));
         }
+    }
+    try {
+        // 先保存终态再通知网页，避免网页收到 turn.completed 后同步历史时读到旧状态。
+        await persistTurnOutcome(threadId, turnId, mapper.outcome);
+        mapper.complete();
     } finally {
         if (running?.turnId === turnId) running = null;
         options.onFinish?.();
     }
+}
+
+/** Claude 会话记录不保存失败和中断，写入补充历史，读取时恢复 turn 的终态和错误。 */
+export async function persistTurnOutcome(threadId: string, turnId: string, outcome: { status: TurnStatus; error: string }, store: TurnHistoryStore = codexEventHistory) {
+    if (outcome.status === "completed") return;
+    const turn = { id: turnId, status: outcome.status, ...(outcome.error ? { error: { message: outcome.error } } : {}) };
+    await store.recordTurn({ threadId, turnId, turn }).catch((error) => logger.warn("Failed to persist Claude turn outcome", { threadId, turnId, error }));
+}
+
+/** 用补充历史里的终态覆盖从会话记录推断出的 completed。 */
+export function applyTurnOutcomes(turns: HistoryTurn[], outcomes: CodexSupplementalHistoryTurn[]) {
+    const byId = new Map(outcomes.map((entry) => [entry.turnId, entry.turn]));
+    return turns.map((turn) => {
+        const outcome = byId.get(turn.id);
+        if (!outcome || turn.status === "inProgress") return turn;
+        const message = String((outcome.error as JsonRecord | undefined)?.message || "");
+        return { ...turn, status: String(outcome.status || turn.status), ...(message ? { error: { message } } : {}) };
+    });
 }
 
 /** 中断正在运行的 Claude turn。 */
@@ -104,7 +131,8 @@ export async function listClaudeThreads(cwd: string) {
 /** 读取 Claude 会话历史，转换成与 Codex 相同的聊天消息结构。 */
 export async function readClaudeThread(threadId: string, cwd: string) {
     const current = runningClaudeTurn();
-    const turns = claudeHistoryTurns(await getSessionMessages(threadId, { dir: cwd }), current?.threadId === threadId ? current.turnId : "");
+    const [sessionMessages, supplemental] = await Promise.all([getSessionMessages(threadId, { dir: cwd }), codexEventHistory.readThread(threadId).catch(() => ({ items: [], turns: [] }))]);
+    const turns = applyTurnOutcomes(claudeHistoryTurns(sessionMessages, current?.threadId === threadId ? current.turnId : ""), supplemental.turns);
     const raw = threadMessages({ id: threadId, turns }).map((item) => (item.role === "assistant" ? { ...item, title: "Claude" } : item));
     const messages = await messageMetadataStore.mergeThread(threadId, raw).catch((error) => {
         logger.warn("Failed to read Claude message metadata", { threadId, error });
@@ -120,6 +148,7 @@ export async function deleteClaudeThread(threadId: string, cwd: string) {
         if (!/not found/i.test(errorMessage(error))) throw error;
     });
     await messageMetadataStore.removeThread(threadId).catch((error) => logger.warn("Failed to remove Claude message metadata", { threadId, error }));
+    await codexEventHistory.removeThread(threadId).catch((error) => logger.warn("Failed to remove Claude turn history", { threadId, error }));
 }
 
 /** 生成新 Claude 会话 ID；首轮用它创建会话，之后用它续用。 */
@@ -165,7 +194,10 @@ export class ClaudeEventMapper {
     private readonly streamBlocks = new Map<number, { id: string; type: string }>();
     private readonly tools = new Map<string, ToolItem>();
     private messageId = "";
-    private finished = false;
+    private settled = false;
+    private completed = false;
+    /** 本轮终态；settle 之后才有意义。 */
+    outcome: { status: TurnStatus; error: string } = { status: "completed", error: "" };
 
     constructor(private readonly emit: AgentEmit) {}
 
@@ -184,17 +216,32 @@ export class ClaudeEventMapper {
             if (message.subtype !== "success" || message.is_error) {
                 const errors = "errors" in message && Array.isArray(message.errors) ? message.errors.join("\n") : "";
                 const result = "result" in message ? String(message.result || "") : "";
-                this.finish("failed", errors || result || `Claude 运行失败（${message.subtype}）`);
+                this.settle("failed", errors || result || `Claude 运行失败（${message.subtype}）`);
             }
         }
     }
 
-    finish(status: "completed" | "failed" | "interrupted", error = "") {
-        if (this.finished) return;
-        this.finished = true;
+    /** 确定本轮终态并关闭未完成的工具；只有第一次调用生效。 */
+    settle(status: TurnStatus, error = "") {
+        if (this.settled) return;
+        this.settled = true;
+        this.outcome = { status, error };
         this.tools.forEach((item) => this.event("item.completed", { item: { ...item, status: status === "completed" ? "interrupted" : status, ...(status === "failed" && error ? { error: { message: error } } : {}) } }));
         this.tools.clear();
+    }
+
+    /** 发出唯一一次 turn.completed。 */
+    complete() {
+        if (this.completed) return;
+        this.settle("completed");
+        this.completed = true;
+        const { status, error } = this.outcome;
         this.event("turn.completed", { status, ...(error ? { error: { message: error } } : {}) });
+    }
+
+    finish(status: TurnStatus, error = "") {
+        this.settle(status, error);
+        this.complete();
     }
 
     private handleStream(event: JsonRecord) {
