@@ -37,6 +37,8 @@ export function useAgentBridge(params: AgentBridgeParams) {
         params;
     const setAgentCanvasContext = useAgentStore((state) => state.setCanvasContext);
     const [agentUndoSnapshot, setAgentUndoSnapshot] = useState<CanvasAgentSnapshot | null>(null);
+    // Agent 操作后的节点和连线；画布之后又被改动（用户编辑、Ctrl+Z 等）时不再允许卡片撤销，避免覆盖这些改动。
+    const [agentResult, setAgentResult] = useState<Pick<CanvasAgentSnapshot, "nodes" | "connections"> | null>(null);
     const projectTitle = title || i18n.t("canvas.project.untitled");
 
     const agentSnapshot = useMemo<CanvasAgentSnapshot>(() => ({ projectId, title: projectTitle, nodes, connections, selectedNodeIds: Array.from(selectedNodeIds), viewport }), [connections, projectTitle, nodes, projectId, selectedNodeIds, viewport]);
@@ -54,6 +56,7 @@ export function useAgentBridge(params: AgentBridgeParams) {
             selectedNodeIdsRef.current = new Set(next.selectedNodeIds);
             viewportRef.current = next.viewport;
             setAgentUndoSnapshot(before);
+            setAgentResult({ nodes: next.nodes, connections: next.connections });
             setNodes(next.nodes);
             setConnections(next.connections);
             setSelectedNodeIds(new Set(next.selectedNodeIds));
@@ -73,8 +76,9 @@ export function useAgentBridge(params: AgentBridgeParams) {
         },
         [projectTitle, projectId],
     );
+    const canUndo = agentUndoSnapshot?.projectId === projectId && agentResult?.nodes === nodes && agentResult.connections === connections;
     const undoAgentOps = useCallback(() => {
-        if (agentUndoSnapshot?.projectId !== projectId) return null;
+        if (!canUndo || !agentUndoSnapshot) return null;
         nodesRef.current = agentUndoSnapshot.nodes;
         connectionsRef.current = agentUndoSnapshot.connections;
         selectedNodeIdsRef.current = new Set(agentUndoSnapshot.selectedNodeIds);
@@ -86,13 +90,14 @@ export function useAgentBridge(params: AgentBridgeParams) {
         setViewport(agentUndoSnapshot.viewport);
         setContextMenu(null);
         setAgentUndoSnapshot(null);
+        setAgentResult(null);
         return { ...agentUndoSnapshot, projectId, title: projectTitle };
-    }, [agentUndoSnapshot, projectTitle, projectId]);
+    }, [agentUndoSnapshot, canUndo, projectTitle, projectId]);
 
     useEffect(() => {
-        setAgentCanvasContext({ snapshot: agentSnapshot, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo: agentUndoSnapshot?.projectId === projectId });
+        setAgentCanvasContext({ snapshot: agentSnapshot, applyOps: applyAgentOps, undoOps: undoAgentOps, canUndo });
         return () => setAgentCanvasContext(null);
-    }, [agentSnapshot, applyAgentOps, agentUndoSnapshot, projectId, setAgentCanvasContext, undoAgentOps]);
+    }, [agentSnapshot, applyAgentOps, canUndo, setAgentCanvasContext, undoAgentOps]);
 
     return { applyAgentOps };
 }
