@@ -884,11 +884,20 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
         await Promise.all(tools.map((tool) => postToolResult(endpoint, token, clientIdRef.current, { requestId: tool.requestId, error: rt("canvasToolCanceled") }).catch(() => undefined)));
     };
 
-    /** 按队列顺序逐个执行，前一个完成后再执行下一个。 */
+    /**
+     * 按队列顺序逐个执行，前一个完成后再执行下一个。
+     * 每次只从队列取出当前这一个，其余仍留在队列里，turn 结束时可以被取消；
+     * Agent 端已不再等待该请求（恢复计时失败）时不执行，并停止后续批量执行。
+     */
     const approvePendingTools = async (requestIds: string[]) => {
-        const tools = takePendingTools(requestIds);
-        for (const tool of tools) {
-            await postToolHold(endpoint, token, clientIdRef.current, tool.requestId, false).catch(() => undefined);
+        for (const requestId of requestIds) {
+            const [tool] = takePendingTools([requestId]);
+            if (!tool) continue;
+            const resumed = await postToolHold(endpoint, token, clientIdRef.current, tool.requestId, false).then(() => true, () => false);
+            if (!resumed) {
+                addEventLog(rt("canvasToolCanceled"), tool, tool);
+                return;
+            }
             await runToolCall(endpoint, token, tool);
         }
     };
