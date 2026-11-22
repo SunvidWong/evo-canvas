@@ -298,7 +298,8 @@ export type ComfyHistoryWorkflow = {
 
 /** 从历史记录里导入时最多取最近几次运行。 */
 export const COMFY_HISTORY_IMPORT_LIMIT = 20;
-const VIDEO_NODE = /video|vhs_|animatediff|wan|hunyuanvideo|ltxv|mochi|cogvideo/i;
+/** 没有输出记录时，只按真正写出视频文件的节点判断。 */
+const VIDEO_OUTPUT_NODE = /VideoCombine|SaveVideo|SaveWEBM|SaveAnimated|CreateVideo/i;
 const MODEL_INPUTS = ["ckpt_name", "unet_name", "model_name", "lora_name"];
 
 function isWorkflowRecord(value: unknown): value is ComfyWorkflow {
@@ -316,7 +317,8 @@ export function parseComfyHistoryWorkflows(history: unknown): ComfyHistoryWorkfl
         if (!isWorkflowRecord(workflow)) return [];
         const nodes = Object.values(workflow);
         const outputs = collectComfyOutputs(entry.outputs);
-        const video = outputs.some((file) => file.kind === "video") || nodes.some((node) => VIDEO_NODE.test(node.class_type || ""));
+        // 优先看实际产出的文件类型；没有输出记录时才看输出节点。
+        const video = outputs.length ? outputs.some((file) => file.kind === "video") : nodes.some((node) => VIDEO_OUTPUT_NODE.test(node.class_type || ""));
         const models = nodes.flatMap((node) => MODEL_INPUTS.map((key) => node.inputs?.[key]).filter((value): value is string => typeof value === "string" && Boolean(value)));
         const sampler = nodes.find((node) => SAMPLER_CLASS.test(node.class_type || ""))?.class_type;
         const start = entry.status?.messages?.find(([type]) => type === "execution_start")?.[1]?.timestamp;

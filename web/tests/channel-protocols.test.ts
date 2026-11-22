@@ -155,5 +155,9 @@ describe("ComfyUI 工作流", () => {
             ["old", "image", "flux1-dev.safetensors", undefined],
         ]);
         expect(parseComfyHistoryWorkflows(null)).toEqual([]);
+        const vhsImage = parseComfyHistoryWorkflows({ a: { prompt: [0, "a", { "1": { class_type: "VHS_LoadImagesPath", inputs: {} }, "2": { class_type: "SaveImage", inputs: {} } }], outputs: { "2": { images: [{ filename: "x.png", type: "output" }] } } } });
+        expect(vhsImage[0].capability).toBe("image");
+        const noOutputs = parseComfyHistoryWorkflows({ b: { prompt: [0, "b", { "1": { class_type: "VHS_VideoCombine", inputs: {} } }] } });
+        expect(noOutputs[0].capability).toBe("video");
     });
 });
