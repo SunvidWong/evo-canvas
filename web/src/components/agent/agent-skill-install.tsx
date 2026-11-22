@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { installCodexSkill, previewCodexSkillInstall, type AgentSkillInstallPreview } from "@/services/api/canvas-agent";
 
-/** 从 GitHub 链接预览并安装 Skill；先预览文件和说明，用户确认后才写入本地。 */
+/** 从 GitHub 或任意 https 链接（SKILL.md 或 zip）预览并安装 Skill；先预览文件和说明，用户确认后才写入本地。 */
 export function AgentSkillInstallModal({ open, endpoint, token, theme, onClose, onInstalled }: {
     open: boolean;
     endpoint: string;
@@ -74,7 +74,7 @@ export function AgentSkillInstallModal({ open, endpoint, token, theme, onClose, 
             <div className="space-y-3">
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>{t("agent.skillManager.install.description")}</div>
                 <div className="flex gap-2">
-                    <Input value={url} placeholder="https://github.com/owner/repo/tree/main/skills/my-skill" aria-label={t("agent.skillManager.install.url")} onChange={(event) => { setUrl(event.target.value); setPreview(null); }} onPressEnter={() => { if (url.trim()) void runPreview(); }} />
+                    <Input value={url} placeholder="https://github.com/owner/repo/tree/main/skills/my-skill · https://example.com/skill.zip" aria-label={t("agent.skillManager.install.url")} onChange={(event) => { setUrl(event.target.value); setPreview(null); }} onPressEnter={() => { if (url.trim()) void runPreview(); }} />
                     <Button loading={loading === "preview"} disabled={!url.trim() || Boolean(loading)} onClick={() => void runPreview()}>{t("agent.skillManager.install.preview")}</Button>
                 </div>
                 {error ? <div className="rounded-md border border-red-500/30 px-3 py-2 text-xs leading-5 text-red-500">{error}</div> : null}

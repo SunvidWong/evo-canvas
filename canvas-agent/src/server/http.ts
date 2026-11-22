@@ -14,7 +14,7 @@ import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
 import { createToken, DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type AgentKind, type CanvasAgentConfig } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
-import { buildInstallPreview, downloadGithubSkill, parseGithubSkillUrl } from "../skills/install.js";
+import { buildInstallPreview, downloadSkill, parseSkillInstallUrl } from "../skills/install.js";
 import { SkillStore, SkillStoreError } from "../skills/store.js";
 
 /** 启动仅监听本机的 Canvas Agent HTTP 服务；resetToken 为 true 时在端口监听成功后生成并保存新的连接 token，旧 token 随即失效。 */
@@ -297,9 +297,8 @@ export function startHttpServer({ resetToken = false } = {}) {
     // 只保留最近一次预览，安装时必须使用用户看过的那份内容。
     let skillInstallPreview: ReturnType<typeof buildInstallPreview> | null = null;
     app.post("/agent/codex/skills/install/preview", route(async (req, res) => {
-        const source = parseGithubSkillUrl(req.body?.url);
-        const { ref, files } = await downloadGithubSkill(source);
-        skillInstallPreview = buildInstallPreview(source, ref, files);
+        const { location, files } = await downloadSkill(parseSkillInstallUrl(req.body?.url));
+        skillInstallPreview = buildInstallPreview(location, files);
         const { payload: _payload, ...preview } = skillInstallPreview;
         res.json({ ok: true, data: preview });
     }));
