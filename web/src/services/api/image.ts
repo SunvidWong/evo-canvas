@@ -905,7 +905,9 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
         const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
             headers: openAICompatibleHeaders(config.apiKey),
         });
-        return (response.data.data || [])
+        // 地址填错时常会拿到 200 的网页或别的 JSON，不能当成“没有模型”。
+        if (!Array.isArray(response.data?.data)) throw new Error(apiText("invalidModelList"));
+        return response.data.data
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
             .sort((a, b) => a.localeCompare(b));

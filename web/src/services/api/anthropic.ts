@@ -131,8 +131,14 @@ export async function fetchAnthropicModels(config: Pick<AiConfig, "baseUrl" | "a
         const query = new URLSearchParams({ limit: "1000", ...(afterId ? { after_id: afterId } : {}) });
         const response = await fetch(buildApiUrl(config.baseUrl, `/models?${query}`), { headers: anthropicHeaders(config.apiKey) });
         if (!response.ok) throw new Error(await readError(response));
-        const payload = (await response.json()) as { data?: Array<{ id?: string }>; has_more?: boolean; last_id?: string };
-        ids.push(...(payload.data || []).map((item) => item.id).filter((id): id is string => Boolean(id)));
+        let payload: { data?: Array<{ id?: string }>; has_more?: boolean; last_id?: string };
+        try {
+            payload = await response.json();
+        } catch {
+            throw new Error(apiText("invalidModelList"));
+        }
+        if (!Array.isArray(payload?.data)) throw new Error(apiText("invalidModelList"));
+        ids.push(...payload.data.map((item) => item.id).filter((id): id is string => Boolean(id)));
         if (!payload.has_more || !payload.last_id) break;
         afterId = payload.last_id;
     }
