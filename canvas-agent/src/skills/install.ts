@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import dns from "node:dns";
 import net from "node:net";
 import zlib from "node:zlib";
 
@@ -13,6 +14,9 @@ export type GithubSkillSource = { owner: string; repo: string; ref?: string; dir
 export type SkillInstallFile = { path: string; size: number; content: Buffer };
 export type SkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: Array<{ path: string; size: number }>; totalSize: number };
 export type SkillInstallSource = { kind: "github"; github: GithubSkillSource } | { kind: "url"; url: URL };
+/** 解析域名得到全部 IP；测试中可替换。 */
+export type Resolver = (host: string) => Promise<string[]>;
+const defaultResolver: Resolver = async (host) => (await dns.promises.lookup(host, { all: true, verbatim: true })).map((item) => item.address);
 type Fetcher = (url: string, init: { signal: AbortSignal; headers: Record<string, string>; redirect?: RequestRedirect }) => Promise<Response>;
 
 const SEGMENT = /^[A-Za-z0-9_.-]+$/;
@@ -36,31 +40,31 @@ export function parseSkillInstallUrl(value: unknown): SkillInstallSource {
 }
 
 /** 按链接类型下载 Skill 文件，返回来源说明和文件列表。 */
-export async function downloadSkill(source: SkillInstallSource, fetcher: Fetcher = fetch) {
+export async function downloadSkill(source: SkillInstallSource, fetcher: Fetcher = fetch, resolve: Resolver = defaultResolver) {
     if (source.kind === "github") {
         const { ref, files } = await downloadGithubSkill(source.github, fetcher);
         const { owner, repo, dir } = source.github;
         return { location: `${owner}/${repo}@${ref}${dir ? `/${dir}` : ""}`, files };
     }
-    return { location: `${source.url.host}${source.url.pathname}`, files: await downloadUrlSkill(source.url, fetcher) };
+    return { location: `${source.url.host}${source.url.pathname}`, files: await downloadUrlSkill(source.url, fetcher, resolve) };
 }
 
 /**
  * 下载任意 https 链接：内容是 zip 时解压出含 SKILL.md 的目录，否则当作 SKILL.md 本身。
  * 边界与 GitHub 相同；下载过程中超过合计上限立即中止，zip 按目录记录的大小先检查再解压。
  */
-export async function downloadUrlSkill(url: URL, fetcher: Fetcher = fetch): Promise<SkillInstallFile[]> {
+export async function downloadUrlSkill(url: URL, fetcher: Fetcher = fetch, resolve: Resolver = defaultResolver): Promise<SkillInstallFile[]> {
     const signal = AbortSignal.timeout(SKILL_INSTALL_LIMITS.timeoutMs);
     let current = url;
     let response: Response | undefined;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+        await assertPublicDestination(current, resolve);
         response = await request(fetcher, current.href, signal, { "user-agent": "canvas-agent" }, "manual", "下载地址");
         if (response.status < 300 || response.status >= 400) break;
         const location = response.headers.get("location");
         if (!location || hop === MAX_REDIRECTS) throw new SkillStoreError("下载地址重定向过多或无效", 409);
         current = new URL(location, current);
         if (current.protocol !== "https:") throw new SkillStoreError("下载地址重定向到了非 https 链接", 400);
-        assertPublicHost(current);
     }
     const body = await readLimited(response!, SKILL_INSTALL_LIMITS.maxTotalBytes, signal);
     if (body.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) return unzipSkill(body);
@@ -191,23 +195,49 @@ async function readLimited(response: Response, limit: number, signal: AbortSigna
     return Buffer.concat(chunks);
 }
 
-/** 只允许公网地址，避免借安装链接访问本机或内网服务。域名解析到内网的情况无法在这里识别。 */
+const BLOCKED_ADDRESSES = (() => {
+    const list = new net.BlockList();
+    ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"].forEach((range) => {
+        const [address, prefix] = range.split("/");
+        list.addSubnet(address, Number(prefix), "ipv4");
+    });
+    ["::/127", "fc00::/7", "fe80::/10", "ff00::/8"].forEach((range) => {
+        const [address, prefix] = range.split("/");
+        list.addSubnet(address, Number(prefix), "ipv6");
+    });
+    return list;
+})();
+
+/** 判断 IP 是否属于本机、内网、链路本地或组播地址；IPv4 映射的 IPv6 地址按 IPv4 判断。 */
+export function isPrivateAddress(address: string) {
+    const value = address.replace(/^\[|\]$/g, "").toLowerCase();
+    const version = net.isIP(value);
+    if (!version) return false;
+    const mapped = version === 6 ? /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(value)?.[1] : undefined;
+    return mapped ? BLOCKED_ADDRESSES.check(mapped, "ipv4") : BLOCKED_ADDRESSES.check(value, version === 4 ? "ipv4" : "ipv6");
+}
+
+/** 只允许公网地址，避免借安装链接访问本机或内网服务。 */
 function assertPublicHost(url: URL) {
     const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) throw new SkillStoreError("不能从本机或局域网地址安装 Skill", 400);
-    const version = net.isIP(host);
-    if (!version) return;
-    const blocked = new net.BlockList();
-    ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16"].forEach((range) => {
-        const [address, prefix] = range.split("/");
-        blocked.addSubnet(address, Number(prefix), "ipv4");
-    });
-    ["::/127", "fc00::/7", "fe80::/10"].forEach((range) => {
-        const [address, prefix] = range.split("/");
-        blocked.addSubnet(address, Number(prefix), "ipv6");
-    });
-    const mapped = version === 6 ? /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host)?.[1] : undefined;
-    if (mapped ? blocked.check(mapped, "ipv4") : blocked.check(host, version === 4 ? "ipv4" : "ipv6")) throw new SkillStoreError("不能从本机或局域网地址安装 Skill", 400);
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || isPrivateAddress(host)) throw new SkillStoreError("不能从本机或局域网地址安装 Skill", 400);
+}
+
+/**
+ * 每次请求前（包括每一跳重定向）检查域名解析结果，任何一个地址落在内网就拒绝。
+ * 本机无法解析（例如只能经代理上网）时放行，由代理去解析；解析和实际连接之间的 DNS 重绑定这里防不住。
+ */
+async function assertPublicDestination(url: URL, resolve: Resolver) {
+    assertPublicHost(url);
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    if (net.isIP(host)) return;
+    let addresses: string[];
+    try {
+        addresses = await resolve(host);
+    } catch {
+        return;
+    }
+    if (addresses.some(isPrivateAddress)) throw new SkillStoreError(`域名 ${host} 指向本机或局域网地址，不能从这里安装 Skill`, 400);
 }
 
 type ZipEntry = { name: string; method: number; flags: number; compressedSize: number; size: number; offset: number };
