@@ -269,6 +269,19 @@ export function startHttpServer({ resetToken = false } = {}) {
         session.emitAll("skills_changed", { forceReload: true });
         res.status(201).json({ ok: true, data });
     }));
+    app.get("/agent/codex/skills/:name/files", route(async (req, res) => {
+        res.json({ ok: true, data: await skillStore.listFiles(routeParam(req.params.name)) });
+    }));
+    app.get("/agent/codex/skills/:name/files/content", route(async (req, res) => {
+        res.json({ ok: true, data: await skillStore.readFile(routeParam(req.params.name), String(req.query.path || "")) });
+    }));
+    app.post("/agent/codex/skills/:name/files", codexMutation(async (req, res) => {
+        res.json({ ok: true, data: await skillStore.writeFile(routeParam(req.params.name), req.body?.path, req.body?.content) });
+    }));
+    app.post("/agent/codex/skills/:name/files/delete", codexMutation(async (req, res) => {
+        await skillStore.deleteFile(routeParam(req.params.name), req.body?.path);
+        res.json({ ok: true });
+    }));
     app.post("/agent/codex/skills/:name/enabled", codexMutation(async (req, res) => {
         if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ ok: false, error: "Skill 启用状态无效" });
         const workspace = ensureSiteWorkspace(config);

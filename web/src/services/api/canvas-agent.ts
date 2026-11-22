@@ -112,6 +112,26 @@ export function updateCodexSkill(endpoint: string, token: string, name: string, 
     return fetchAgentJson<AgentSkillResponse>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}`, jsonPost(input));
 }
 
+export type AgentSkillFile = { path: string; size: number; modifiedAt: number };
+export type AgentSkillFileContent = AgentSkillFile & { text?: string; binary: boolean };
+
+export function fetchCodexSkillFiles(endpoint: string, token: string, name: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFile[] }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files`);
+}
+
+export function fetchCodexSkillFile(endpoint: string, token: string, name: string, path: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFileContent }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/content?path=${encodeURIComponent(path)}`);
+}
+
+/** content 为 base64；同路径已存在时覆盖。 */
+export function uploadCodexSkillFile(endpoint: string, token: string, name: string, path: string, content: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFile }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files`, jsonPost({ path, content }));
+}
+
+export function deleteCodexSkillFile(endpoint: string, token: string, name: string, path: string) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/delete`, jsonPost({ path }));
+}
+
 export function deleteCodexSkill(endpoint: string, token: string, name: string, expectedRevision: string) {
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/delete`, jsonPost({ expectedRevision }));
 }

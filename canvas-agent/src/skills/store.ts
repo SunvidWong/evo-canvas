@@ -53,6 +53,14 @@ type SkillDocument = {
 
 type OpenAiDocument = { raw: string; data: Record<string, unknown>; interface?: ManagedSkillInterface };
 
+/** Skill 目录里除 SKILL.md 和 agents/openai.yaml 以外的脚本、参考文件。 */
+export type SkillResourceFile = { path: string; size: number; modifiedAt: number };
+export type SkillResourceContent = SkillResourceFile & { text?: string; binary: boolean };
+
+/** 由表单维护的文件，不能当作资源文件读写。 */
+const RESERVED_RESOURCE_PATHS = new Set(["skill.md", "agents/openai.yaml"]);
+const RESOURCE_SEGMENT_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+
 export class SkillStoreError extends Error {
     override name = "SkillStoreError";
     constructor(message: string, readonly statusCode: 400 | 404 | 409 | 500) {
@@ -162,6 +170,85 @@ export class SkillStore {
             if (!inside(realRoot, realSkill)) throw new SkillStoreError("Skill 路径不安全", 400);
             await fs.rm(realSkill, { recursive: true });
         });
+    }
+
+    /** 列出 Skill 目录下的资源文件，路径用 / 分隔并相对 Skill 目录。 */
+    async listFiles(name: string): Promise<SkillResourceFile[]> {
+        try {
+            await this.writeQueue.catch(() => undefined);
+            const paths = await this.safeExistingPaths(name);
+            const files = await listResourceFiles(paths.skillDir, "");
+            return files.filter((file) => !RESERVED_RESOURCE_PATHS.has(file.path.toLowerCase())).sort((a, b) => a.path.localeCompare(b.path));
+        } catch (error) {
+            throw storeError(error, "读取 Skill 文件失败");
+        }
+    }
+
+    /** 读取一个资源文件；文本文件返回内容，二进制文件只返回元数据。 */
+    async readFile(name: string, filePath: unknown): Promise<SkillResourceContent> {
+        try {
+            await this.writeQueue.catch(() => undefined);
+            const target = await this.resourceTarget(name, filePath);
+            const entry = await lstatOptional(target.absolute);
+            if (!entry) throw new SkillStoreError("找不到指定文件", 404);
+            if (entry.isSymbolicLink() || !entry.isFile()) throw new SkillStoreError("文件路径不安全", 400);
+            const buffer = await fs.readFile(target.absolute);
+            const text = decodeText(buffer);
+            return { path: target.relative, size: entry.size, modifiedAt: Math.floor(entry.mtimeMs), binary: text === undefined, ...(text === undefined ? {} : { text }) };
+        } catch (error) {
+            throw storeError(error, "读取 Skill 文件失败");
+        }
+    }
+
+    /** 新增或覆盖资源文件，按需创建子目录；不能写出 Skill 目录。 */
+    writeFile(name: string, filePath: unknown, contentBase64: unknown) {
+        return this.mutate(async () => {
+            if (typeof contentBase64 !== "string") throw new SkillStoreError("文件内容无效", 400);
+            const target = await this.resourceTarget(name, filePath);
+            let directory = target.skillDir;
+            for (const segment of target.relative.split("/").slice(0, -1)) {
+                directory = path.join(directory, segment);
+                await ensurePlainDirectory(directory);
+            }
+            const existing = await lstatOptional(target.absolute);
+            if (existing && (existing.isSymbolicLink() || !existing.isFile())) throw new SkillStoreError("文件路径不安全", 400);
+            await assertInsideReal(target.skillDir, path.dirname(target.absolute));
+            await writeBufferAtomic(target.absolute, Buffer.from(contentBase64, "base64"));
+            const entry = await fs.lstat(target.absolute);
+            return { path: target.relative, size: entry.size, modifiedAt: Math.floor(entry.mtimeMs) } satisfies SkillResourceFile;
+        });
+    }
+
+    /** 删除资源文件，并清理因此变空的子目录。 */
+    deleteFile(name: string, filePath: unknown) {
+        return this.mutate(async () => {
+            const target = await this.resourceTarget(name, filePath);
+            const entry = await lstatOptional(target.absolute);
+            if (!entry) throw new SkillStoreError("找不到指定文件", 404);
+            if (entry.isSymbolicLink() || !entry.isFile()) throw new SkillStoreError("文件路径不安全", 400);
+            await assertInsideReal(target.skillDir, path.dirname(target.absolute));
+            await fs.unlink(target.absolute);
+            let directory = path.dirname(target.absolute);
+            while (directory !== target.skillDir && inside(target.skillDir, directory)) {
+                if ((await fs.readdir(directory)).length) break;
+                await fs.rmdir(directory);
+                directory = path.dirname(directory);
+            }
+        });
+    }
+
+    /** 校验资源文件路径：只能是 Skill 目录内的相对路径，不能是保留文件，也不能经过符号链接。 */
+    private async resourceTarget(name: string, filePath: unknown) {
+        const relative = resourcePath(filePath);
+        const paths = await this.safeExistingPaths(name);
+        let current = paths.skillDir;
+        for (const segment of relative.split("/").slice(0, -1)) {
+            current = path.join(current, segment);
+            const entry = await lstatOptional(current);
+            if (!entry) break;
+            if (entry.isSymbolicLink() || !entry.isDirectory()) throw new SkillStoreError("文件路径不安全", 400);
+        }
+        return { skillDir: paths.skillDir, relative, absolute: path.join(paths.skillDir, ...relative.split("/")) };
     }
 
     private mutate<T>(operation: () => Promise<T>): Promise<T> {
@@ -406,6 +493,57 @@ async function assertTreeHasNoLinks(directory: string): Promise<void> {
         const metadata = await fs.lstat(entryPath);
         if (metadata.isSymbolicLink()) throw new SkillStoreError("Skill 目录中存在符号链接或目录联接，无法删除", 400);
         if (metadata.isDirectory()) await assertTreeHasNoLinks(entryPath);
+    }
+}
+
+function resourcePath(value: unknown) {
+    const raw = typeof value === "string" ? value.trim().replace(/\\/g, "/") : "";
+    const segments = raw.split("/");
+    if (!raw || raw.startsWith("/") || segments.some((segment) => !RESOURCE_SEGMENT_PATTERN.test(segment))) {
+        throw new SkillStoreError("文件路径只能包含字母、数字、点、下划线和连字符，并且不能以点开头", 400);
+    }
+    if (RESERVED_RESOURCE_PATHS.has(raw.toLowerCase())) throw new SkillStoreError("SKILL.md 和 agents/openai.yaml 请在 Skill 表单里编辑", 400);
+    return raw;
+}
+
+async function listResourceFiles(directory: string, prefix: string): Promise<SkillResourceFile[]> {
+    const files: SkillResourceFile[] = [];
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const absolute = path.join(directory, entry.name);
+        const metadata = await fs.lstat(absolute);
+        // 跳过符号链接和临时文件，避免读到 Skill 目录以外的内容。
+        if (metadata.isSymbolicLink() || entry.name.startsWith(".")) continue;
+        if (metadata.isDirectory()) files.push(...await listResourceFiles(absolute, relative));
+        else if (metadata.isFile()) files.push({ path: relative, size: metadata.size, modifiedAt: Math.floor(metadata.mtimeMs) });
+    }
+    return files;
+}
+
+function decodeText(buffer: Buffer) {
+    if (buffer.includes(0)) return undefined;
+    try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+        return undefined;
+    }
+}
+
+async function assertInsideReal(skillDir: string, directory: string) {
+    const realSkill = await fs.realpath(skillDir);
+    const realDirectory = await fs.realpath(directory);
+    if (realDirectory !== realSkill && !inside(realSkill, realDirectory)) throw new SkillStoreError("文件路径不安全", 400);
+}
+
+async function writeBufferAtomic(filePath: string, content: Buffer) {
+    const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+    try {
+        await fs.writeFile(temporary, content, { flag: "wx" });
+        await fs.rename(temporary, filePath);
+    } finally {
+        await fs.unlink(temporary).catch((error) => {
+            if (nodeErrorCode(error) !== "ENOENT") throw error;
+        });
     }
 }
 

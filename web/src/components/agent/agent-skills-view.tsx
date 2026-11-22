@@ -9,6 +9,7 @@ import { createCodexSkill, createCodexSkillDraft, deleteCodexSkill, fetchCodexSk
 import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
 import { useAgentStore, type AgentChatItem } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { AgentSkillFiles } from "./agent-skill-files";
 
 type ScopeFilter = "all" | AgentSkillScope;
 type SkillDraftSource = "conversation" | "canvas";
@@ -47,6 +48,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
     const [editor, setEditor] = useState<SkillEditor | null>(null);
     const [saving, setSaving] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [filesOpen, setFilesOpen] = useState(false);
     const [createMenuOpen, setCreateMenuOpen] = useState(false);
     const [busySkill, setBusySkill] = useState("");
     const [errorsOpen, setErrorsOpen] = useState(false);
@@ -79,6 +81,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
         setEditor(null);
         setSaving(false);
         setAdvancedOpen(false);
+        setFilesOpen(false);
         setCreateMenuOpen(false);
         setBusySkill("");
         setErrorsOpen(false);
@@ -164,6 +167,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             setDraft(null);
             setEditor(null);
             setAdvancedOpen(false);
+            setFilesOpen(false);
             await refresh();
             if (!connectionIsCurrent(connectionRevision)) return;
             message.success(t(editor.mode === "create" ? "agent.skillManager.created" : "agent.skillManager.updated"));
@@ -376,6 +380,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                     setDraft(null);
                     setEditor(null);
                     setAdvancedOpen(false);
+                    setFilesOpen(false);
                 }}
                 onOk={() => void saveSkill()}
             >
@@ -393,10 +398,18 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                     <Collapse
                         ghost
                         size="small"
-                        activeKey={advancedOpen ? ["advanced"] : []}
+                        activeKey={[...(advancedOpen ? ["advanced"] : []), ...(filesOpen ? ["files"] : [])]}
                         expandIconPlacement="end"
-                        onChange={(keys) => setAdvancedOpen((Array.isArray(keys) ? keys : [keys]).includes("advanced"))}
-                        items={[{
+                        onChange={(keys) => {
+                            const open = Array.isArray(keys) ? keys : [keys];
+                            setAdvancedOpen(open.includes("advanced"));
+                            setFilesOpen(open.includes("files"));
+                        }}
+                        items={[...(editor?.mode === "edit" ? [{
+                            key: "files",
+                            label: <span className="text-sm font-medium">{t("agent.skillManager.files.title")}</span>,
+                            children: <AgentSkillFiles endpoint={endpoint} token={token} name={editor.detail.name} theme={theme} />,
+                        }] : []), {
                             key: "advanced",
                             forceRender: true,
                             label: <span className="text-sm font-medium">{t("agent.skillManager.advanced")}</span>,
