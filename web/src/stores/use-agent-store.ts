@@ -84,7 +84,8 @@ type AgentStore = {
     bootstrapStatus: AgentBootstrapStatus | null;
     mcpStartupStatuses: Record<string, AgentBootstrapStatus>;
     connectError: string;
-    pendingTool: AgentPendingToolCall | null;
+    /** 手动确认模式下等待确认的画布工具，按到达顺序排列。 */
+    pendingTools: AgentPendingToolCall[];
     pendingApprovals: AgentPendingApproval[];
     setAgentState: (patch: Partial<Omit<AgentStore, "setAgentState" | "connectAgent" | "disconnectAgent" | "addMessage" | "addEventLog" | "clearEventLogs" | "openPanel" | "closePanel" | "togglePanel" | "setCanvasContext">>) => void;
     openPanel: () => void;
@@ -138,7 +139,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     bootstrapStatus: null,
     mcpStartupStatuses: {},
     connectError: "",
-    pendingTool: null,
+    pendingTools: [],
     pendingApprovals: [],
     setAgentState: (patch) => set(patch),
     openPanel: () => set({ panelOpen: true, panelMounted: true, panelClosing: false }),

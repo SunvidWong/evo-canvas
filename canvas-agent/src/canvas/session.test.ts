@@ -531,6 +531,52 @@ test("切换活动线程会清除上一线程的实时快照", (t) => {
 });
 
 /** 创建用于测试的画布 SSE 连接。 */
+test("待确认的画布工具暂停超时，批准后重新计时", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas"), "first");
+    const result = session.callTool("canvas_create_text_node", { text: "排队" });
+    const requestId = String(field(client.event("tool_call"), "requestId"));
+    assert.equal(session.holdResult("second", { requestId, held: true }), false);
+    assert.equal(session.holdResult("first", { requestId, held: true }), true);
+    t.mock.timers.tick(120000);
+    assert.equal(session.holdResult("first", { requestId, held: false }), true);
+    t.mock.timers.tick(29999);
+    assert.equal(session.resolveResult("first", { requestId, result: { ok: true } }), true);
+    assert.deepEqual(await result, { ok: true });
+});
+
+test("批准后执行仍按原超时失败", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas"), "first");
+    const result = session.callTool("canvas_create_text_node", { text: "超时" });
+    const requestId = String(field(client.event("tool_call"), "requestId"));
+    session.holdResult("first", { requestId, held: true });
+    session.holdResult("first", { requestId, held: false });
+    t.mock.timers.tick(30000);
+    await assert.rejects(result, /画布操作超时/);
+});
+
+test("turn 结束时取消确认队列里的工具请求并通知网页", async (t) => {
+    const session = new CanvasSession();
+    const client = connect(session, "first");
+    t.after(() => client.close());
+    session.updateState(snapshot("canvas"), "first");
+    session.setCodexState({ busy: true, threadId: "thread-1", turnId: "turn-1" });
+    const held = session.callTool("canvas_create_text_node", { text: "排队" });
+    const heldId = String(field(client.event("tool_call"), "requestId"));
+    session.holdResult("first", { requestId: heldId, held: true });
+    session.setCodexState({ busy: false });
+    await assert.rejects(held, /对话已结束/);
+    assert.deepEqual(field(client.event("tool_calls_canceled"), "requestIds"), [heldId]);
+    assert.equal(session.resolveResult("first", { requestId: heldId, result: {} }), false);
+});
+
 function connect(session: CanvasSession, clientId: string, activeThreadId = "") {
     const response = new FakeSseResponse();
     session.openEvents(new URL(`http://127.0.0.1/events?clientId=${clientId}`), response as unknown as ServerResponse, activeThreadId);

@@ -8,6 +8,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { useAgentStore, type AgentKind, type AgentModel, type AgentPermissionMode, type AgentReasoningEffort } from "@/stores/use-agent-store";
 import type { AgentChatAttachment } from "./agent-chat-message";
 import { AgentChatPromptInput } from "./agent-chat-prompt-input";
+import { AgentTemplateMenu } from "./agent-template-menu";
 
 export function AgentChatComposer({
     prompt,
@@ -95,6 +96,7 @@ export function AgentChatComposer({
                                 </Tooltip>
                             </>
                         ) : null}
+                        <AgentTemplateMenu theme={theme} disabled={disabled || sending} />
                         {agentKind && onAgentKindChange ? <AgentKindSelect agentKind={agentKind} disabled={agentKindDisabled ?? (disabled || sending)} onChange={onAgentKindChange} /> : null}
                         {onConfirmToolsChange ? <ToolConfirmationMenu confirmTools={Boolean(confirmTools)} theme={theme} onChange={onConfirmToolsChange} /> : null}
                         {permissionMode && onPermissionModeChange ? <PermissionModeMenu permissionMode={permissionMode} theme={theme} onChange={onPermissionModeChange} /> : null}

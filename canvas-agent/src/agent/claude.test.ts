@@ -85,9 +85,9 @@ test("Claude 历史记录的消息 ID 与实时事件一致", () => {
 test("Claude 失败的 turn 刷新后仍保留失败状态和错误提示", async () => {
     const recorded: CodexSupplementalHistoryTurn[] = [];
     const store = { recordTurn: async (entry: CodexSupplementalHistoryTurn) => void recorded.push(entry) };
-    await persistTurnOutcome("s1", "turn-1", { status: "completed", error: "" }, store);
+    await persistTurnOutcome("s1", "turn-1", { status: "completed", error: "" }, "", store);
     assert.equal(recorded.length, 0);
-    await persistTurnOutcome("s1", "turn-1", { status: "failed", error: "Claude 运行失败：网络断开" }, store);
+    await persistTurnOutcome("s1", "turn-1", { status: "failed", error: "Claude 运行失败：网络断开" }, "", store);
     const entry = (type: SessionMessage["type"], uuid: string, message: unknown): SessionMessage => ({ type, uuid, session_id: "s1", message, parent_tool_use_id: null, parent_agent_id: null });
     const turns = applyTurnOutcomes(claudeHistoryTurns([entry("user", "turn-1", { role: "user", content: "整理画布" })]), recorded);
     assert.deepEqual(turns.map((turn) => [turn.id, turn.status]), [["turn-1", "failed"]]);
@@ -107,4 +107,15 @@ test("Claude turn 在保存终态后才发出 turn.completed", () => {
     mapper.complete();
     mapper.complete();
     assert.equal(events.filter((event) => event.type === "turn.completed").length, 1);
+});
+
+test("Claude 历史显示用户输入的原文，而不是带画布上下文的完整提示词", async () => {
+    const recorded: CodexSupplementalHistoryTurn[] = [];
+    const store = { recordTurn: async (entry: CodexSupplementalHistoryTurn) => void recorded.push(entry) };
+    await persistTurnOutcome("s1", "turn-1", { status: "completed", error: "" }, "总结 @文本1", store);
+    const entry = (type: SessionMessage["type"], uuid: string, message: unknown): SessionMessage => ({ type, uuid, session_id: "s1", message, parent_tool_use_id: null, parent_agent_id: null });
+    const turns = applyTurnOutcomes(claudeHistoryTurns([entry("user", "turn-1", { role: "user", content: "总结 @文本1\n\n本轮引用的当前画布素材：……" })]), recorded);
+    assert.equal(turns[0]!.status, "completed");
+    const user = threadMessages({ id: "s1", turns }).find((message) => message.role === "user")!;
+    assert.equal(user.text, "总结 @文本1");
 });
