@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Collapse, Dropdown, Form, Input, Modal, Select, Switch, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import { Check, ChevronDown, CircleAlert, FilePenLine, LoaderCircle, LockKeyhole, MessageSquareText, Plus, RefreshCw, Search, Sparkles, Trash2, Workflow } from "lucide-react";
+import { Check, ChevronDown, Download, CircleAlert, FilePenLine, LoaderCircle, LockKeyhole, MessageSquareText, Plus, RefreshCw, Search, Sparkles, Trash2, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -10,6 +10,7 @@ import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
 import { useAgentStore, type AgentChatItem } from "@/stores/use-agent-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { AgentSkillFiles } from "./agent-skill-files";
+import { AgentSkillInstallModal } from "./agent-skill-install";
 
 type ScopeFilter = "all" | AgentSkillScope;
 type SkillDraftSource = "conversation" | "canvas";
@@ -49,6 +50,7 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
     const [saving, setSaving] = useState(false);
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [filesOpen, setFilesOpen] = useState(false);
+    const [installOpen, setInstallOpen] = useState(false);
     const [createMenuOpen, setCreateMenuOpen] = useState(false);
     const [busySkill, setBusySkill] = useState("");
     const [errorsOpen, setErrorsOpen] = useState(false);
@@ -253,6 +255,16 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             },
             { type: "divider" as const },
             {
+                key: "github",
+                icon: <Download className="size-4" />,
+                label: (
+                    <div className="py-0.5">
+                        <div className="text-sm">{t("agent.skillManager.install.menu")}</div>
+                        <div className="mt-0.5 text-xs" style={{ color: theme.node.muted }}>{t("agent.skillManager.install.menuDescription")}</div>
+                    </div>
+                ),
+            },
+            {
                 key: "manual",
                 icon: <FilePenLine className="size-4" />,
                 label: (
@@ -264,7 +276,8 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
             },
         ],
         onClick: ({ key }) => {
-            if (key === "manual") {
+            if (key === "github") setInstallOpen(true);
+            else if (key === "manual") {
                 setDraft(null);
                 setEditor({ mode: "create" });
             }
@@ -358,6 +371,8 @@ export function AgentSkillsView({ clientId }: { clientId: string }) {
                     </div>
                 )}
             </div>
+
+            <AgentSkillInstallModal open={installOpen} endpoint={endpoint} token={token} theme={theme} onClose={() => setInstallOpen(false)} onInstalled={() => refresh()} />
 
             <Modal title={t("agent.skillManager.loadErrors", { count: errors.length })} open={errorsOpen} footer={null} width={720} onCancel={() => setErrorsOpen(false)}>
                 <div className="thin-scrollbar mt-4 max-h-[60vh] overflow-y-auto rounded-md border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke }}>

@@ -132,6 +132,16 @@ export function deleteCodexSkillFile(endpoint: string, token: string, name: stri
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/delete`, jsonPost({ path }));
 }
 
+export type AgentSkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: AgentSkillFile[]; totalSize: number };
+
+export function previewCodexSkillInstall(endpoint: string, token: string, url: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillInstallPreview }>(endpoint, token, "/agent/codex/skills/install/preview", jsonPost({ url }));
+}
+
+export function installCodexSkill(endpoint: string, token: string, previewId: string) {
+    return fetchAgentJson<AgentSkillResponse>(endpoint, token, "/agent/codex/skills/install", jsonPost({ previewId }));
+}
+
 export function deleteCodexSkill(endpoint: string, token: string, name: string, expectedRevision: string) {
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/delete`, jsonPost({ expectedRevision }));
 }

@@ -237,6 +237,40 @@ export class SkillStore {
         });
     }
 
+    /** 安装从网络下载的 Skill：校验 SKILL.md 后整体写入新目录，失败时清理，不覆盖同名 Skill。 */
+    install(files: Array<{ path: string; content: Buffer }>) {
+        return this.mutate(async () => {
+            const skillFile = files.find((item) => item.path === "SKILL.md");
+            if (!skillFile) throw new SkillStoreError("该目录下没有 SKILL.md", 400);
+            const parsed = matter(skillFile.content.toString("utf8"));
+            const name = skillName(parsed.data.name);
+            skillDescription(parsed.data.description);
+            skillInstructions(parsed.content);
+            await this.ensureRoot();
+            const skillDir = path.join(this.skillsPath, name);
+            const existing = await lstatOptional(skillDir);
+            if (existing) throw new SkillStoreError(existing.isSymbolicLink() ? "Skill 目录不能是符号链接或目录联接" : "同名 Skill 已存在，请先删除或改用其他 Skill", existing.isSymbolicLink() ? 400 : 409);
+            await fs.mkdir(skillDir);
+            try {
+                for (const file of files) {
+                    const segments = file.path.split("/");
+                    if (segments.some((segment) => !RESOURCE_SEGMENT_PATTERN.test(segment))) throw new SkillStoreError(`文件名 ${file.path} 不受支持`, 400);
+                    let directory = skillDir;
+                    for (const segment of segments.slice(0, -1)) {
+                        directory = path.join(directory, segment);
+                        await ensurePlainDirectory(directory);
+                    }
+                    await writeBufferAtomic(path.join(skillDir, ...segments), file.content);
+                }
+                const paths = await this.safeExistingPaths(name);
+                return await this.readDetail(name, paths.skillFile, paths.openAiFile);
+            } catch (error) {
+                await fs.rm(skillDir, { recursive: true, force: true }).catch(() => undefined);
+                throw error;
+            }
+        });
+    }
+
     /** 校验资源文件路径：只能是 Skill 目录内的相对路径，不能是保留文件，也不能经过符号链接。 */
     private async resourceTarget(name: string, filePath: unknown) {
         const relative = resourcePath(filePath);
