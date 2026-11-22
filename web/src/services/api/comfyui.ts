@@ -282,3 +282,63 @@ export async function generateComfyVideo(config: Pick<AiConfig, "baseUrl" | "api
 export async function checkComfyConnection(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
     await comfyFetch<unknown>(config, "/system_stats");
 }
+
+export type ComfyHistoryWorkflow = {
+    id: string;
+    /** 开始执行的时间（毫秒），ComfyUI 没给时为空。 */
+    time?: number;
+    workflow: ComfyWorkflow;
+    capability: "image" | "video";
+    /** 用于列表展示：模型文件名，没有时用采样器节点名。 */
+    summary: string;
+    /** 工作流用到的模型文件名。 */
+    models: string[];
+    nodeCount: number;
+};
+
+/** 从历史记录里导入时最多取最近几次运行。 */
+export const COMFY_HISTORY_IMPORT_LIMIT = 20;
+/** 没有输出记录时，只按真正写出视频文件的节点判断。 */
+const VIDEO_OUTPUT_NODE = /VideoCombine|SaveVideo|SaveWEBM|SaveAnimated|CreateVideo/i;
+const MODEL_INPUTS = ["ckpt_name", "unet_name", "model_name", "lora_name"];
+
+function isWorkflowRecord(value: unknown): value is ComfyWorkflow {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const nodes = Object.values(value as Record<string, unknown>);
+    return nodes.length > 0 && nodes.every((node) => Boolean(node) && typeof node === "object" && typeof (node as { class_type?: unknown }).class_type === "string");
+}
+
+/** 把 /history 的返回整理成可导入的工作流列表：每条记录的 prompt[2] 就是 API 格式工作流，最新的在前。 */
+export function parseComfyHistoryWorkflows(history: unknown): ComfyHistoryWorkflow[] {
+    if (!history || typeof history !== "object" || Array.isArray(history)) return [];
+    const items = Object.entries(history as Record<string, { prompt?: unknown[]; status?: ComfyHistory[string]["status"]; outputs?: Record<string, Record<string, unknown>> }>).flatMap(([id, entry]) => {
+        const prompt = Array.isArray(entry?.prompt) ? entry.prompt : [];
+        const workflow = prompt[2];
+        if (!isWorkflowRecord(workflow)) return [];
+        const nodes = Object.values(workflow);
+        const outputs = collectComfyOutputs(entry.outputs);
+        // 优先看实际产出的文件类型；没有输出记录时才看输出节点。
+        const video = outputs.length ? outputs.some((file) => file.kind === "video") : nodes.some((node) => VIDEO_OUTPUT_NODE.test(node.class_type || ""));
+        const models = nodes.flatMap((node) => MODEL_INPUTS.map((key) => node.inputs?.[key]).filter((value): value is string => typeof value === "string" && Boolean(value)));
+        const sampler = nodes.find((node) => SAMPLER_CLASS.test(node.class_type || ""))?.class_type;
+        const start = entry.status?.messages?.find(([type]) => type === "execution_start")?.[1]?.timestamp;
+        return [
+            {
+                id,
+                order: typeof prompt[0] === "number" ? prompt[0] : -1,
+                time: typeof start === "number" ? start : undefined,
+                workflow,
+                capability: video ? ("video" as const) : ("image" as const),
+                summary: Array.from(new Set(models)).join(", ") || sampler || "",
+                models: Array.from(new Set(models)),
+                nodeCount: nodes.length,
+            },
+        ];
+    });
+    return items.sort((a, b) => b.order - a.order || (b.time || 0) - (a.time || 0)).map(({ order: _order, ...item }) => item);
+}
+
+/** 读取 ComfyUI 最近运行过的工作流，用来直接导入，免去手动「导出（API）」。 */
+export async function fetchComfyHistoryWorkflows(config: Pick<AiConfig, "baseUrl" | "apiKey">, maxItems = COMFY_HISTORY_IMPORT_LIMIT) {
+    return parseComfyHistoryWorkflows(await comfyFetch<unknown>(config, `/history?max_items=${maxItems}`));
+}
