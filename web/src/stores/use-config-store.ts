@@ -33,6 +33,8 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: ChannelModel[];
+    /** 文本回复长度上限（token）。不填时：Anthropic 用 8192，其他协议不传，由服务端决定。 */
+    maxTokens?: number;
 };
 
 export type AiConfig = {
@@ -57,6 +59,8 @@ export type AiConfig = {
     videoMode: string;
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
+    /** 当前请求所用渠道的回复长度上限，由 resolveModelRequestConfig 带上。 */
+    maxTokens?: number;
     models: string[];
     quality: string;
     size: string;
@@ -365,7 +369,14 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: normalizeChannelModels(channel?.models),
+        ...(normalizeMaxTokens(channel?.maxTokens) ? { maxTokens: normalizeMaxTokens(channel?.maxTokens) } : {}),
     };
+}
+
+/** 回复长度上限只接受正整数，其余视为未设置。 */
+export function normalizeMaxTokens(value: unknown) {
+    const number = typeof value === "string" ? Number(value.trim()) : value;
+    return typeof number === "number" && Number.isInteger(number) && number > 0 ? number : undefined;
 }
 
 export function upsertChannelCredentials(
@@ -488,6 +499,7 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+        maxTokens: channel.maxTokens,
     };
 }
 

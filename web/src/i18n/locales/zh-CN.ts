@@ -548,7 +548,7 @@ export default {
                 gemini: "Google Gemini 接口，支持文本、生图和视频。",
                 comfyui: "连接本机或局域网的 ComfyUI，每个「模型」对应一份导出的 API 格式工作流，用于生图或视频。",
             },
-            apiKeyOptional: "API Key（可选）",
+            maxTokens: "回复长度上限（token，可选）", maxTokensPlaceholder: "不填由服务商决定", maxTokensHint: "只影响文本对话，超过上限时回复会被截断。", maxTokensHintAnthropic: "Claude 接口必须指定上限，不填时用 {{limit}}；超过上限时回复末尾会提示被截断。", apiKeyOptional: "API Key（可选）",
             apiKeyOptionalPlaceholder: "本地服务一般不需要",
             addWorkflow: "添加工作流",
             workflowDescription: "已添加 {{count}} 个工作流；每个工作流在画布里作为一个模型使用。",

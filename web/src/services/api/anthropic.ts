@@ -9,7 +9,7 @@ type AnthropicEvent = { type?: string; delta?: { type?: string; text?: string; s
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 const ANTHROPIC_VERSION = "2023-06-01";
-/** Messages 接口要求必须给出回复长度上限；取常见模型都支持的值（默认值待用户确认）。到达上限时在回复末尾提示被截断。 */
+/** Messages 接口要求必须给出回复长度上限；渠道没设置时用常见模型都支持的值。到达上限时在回复末尾提示被截断。 */
 export const ANTHROPIC_MAX_TOKENS = 8192;
 
 export function anthropicHeaders(apiKey: string, contentType?: string) {
@@ -83,10 +83,11 @@ export function parseAnthropicEvents(block: string) {
 
 /** 通过 Anthropic Messages 接口流式生成文本。 */
 export async function requestAnthropicMessage(config: AiConfig, messages: ChatMessage[], onDelta?: (text: string) => void, options?: RequestOptions) {
+    const maxTokens = config.maxTokens || ANTHROPIC_MAX_TOKENS;
     const response = await fetch(buildApiUrl(config.baseUrl, "/messages"), {
         method: "POST",
         headers: { ...anthropicHeaders(config.apiKey, "application/json"), Accept: "text/event-stream" },
-        body: JSON.stringify({ model: config.model, max_tokens: ANTHROPIC_MAX_TOKENS, stream: true, ...toAnthropicRequest(messages) }),
+        body: JSON.stringify({ model: config.model, max_tokens: maxTokens, stream: true, ...toAnthropicRequest(messages) }),
         signal: options?.signal,
     });
     if (!response.ok) throw new Error(await readError(response));
@@ -116,7 +117,7 @@ export async function requestAnthropicMessage(config: AiConfig, messages: ChatMe
     buffer += decoder.decode();
     if (buffer.trim()) consume(buffer);
     if (stopReason === "max_tokens") {
-        text += `\n\n${apiText("anthropicMaxTokens", { limit: ANTHROPIC_MAX_TOKENS })}`;
+        text += `\n\n${apiText("anthropicMaxTokens", { limit: maxTokens })}`;
         onDelta?.(text);
     }
     return text;
