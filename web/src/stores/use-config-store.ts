@@ -173,7 +173,7 @@ export function boolConfig(value: string, fallback: boolean) {
 }
 /** 名字里明确写了用途的，优先按用途判断（例如 wan2.1-t2i 是生图，kling-image 是生图，jimeng-video 是视频）。 */
 const EXPLICIT_VIDEO = /video|t2v|i2v|v2v/;
-const EXPLICIT_IMAGE = /t2i|i2i|image/;
+const EXPLICIT_IMAGE = /t2i|i2i|image|photon/;
 const VIDEO_BRANDS = /sora|veo|kling|\bwan(?!x)|hailuo|seedance|vidu|pixverse|cogvideo|ltx-?v|mochi|runway|gen-?3|luma|pika/;
 const AUDIO_BRANDS = /audio|tts|speech|voice|music|sound|cosyvoice|suno|sambert|elevenlabs/;
 const IMAGE_BRANDS = /seedream|seededit|dall-?e|imagen|flux|sdxl|sd3|stable-diffusion|midjourney|cogview|kolors|jimeng|wanx|ideogram|recraft|kontext|hidream/;
@@ -183,9 +183,11 @@ export function guessCapability(name: string): ModelCapability {
     const value = name.toLowerCase();
     if (EXPLICIT_VIDEO.test(value)) return "video";
     if (EXPLICIT_IMAGE.test(value)) return "image";
-    if (VIDEO_BRANDS.test(value)) return "video";
-    if (AUDIO_BRANDS.test(value)) return "audio";
-    if (IMAGE_BRANDS.test(value)) return "image";
+    // 品牌只看斜杠后的模型名，避免 runwayml/stable-diffusion-v1-5 这类发布方前缀误判。
+    const modelName = value.slice(value.lastIndexOf("/") + 1);
+    if (VIDEO_BRANDS.test(modelName)) return "video";
+    if (AUDIO_BRANDS.test(modelName)) return "audio";
+    if (IMAGE_BRANDS.test(modelName)) return "image";
     return "text";
 }
 
