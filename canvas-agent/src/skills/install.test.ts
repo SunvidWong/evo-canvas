@@ -6,9 +6,10 @@ import test from "node:test";
 
 import zlib from "node:zlib";
 
-import { buildInstallPreview, downloadGithubSkill, downloadSkill, downloadUrlSkill, parseGithubSkillUrl, parseSkillInstallUrl, SKILL_INSTALL_LIMITS, unzipSkill } from "./install.js";
+import { buildInstallPreview, downloadGithubSkill, downloadSkill, downloadUrlSkill, isPrivateAddress, parseGithubSkillUrl, parseSkillInstallUrl, SKILL_INSTALL_LIMITS, unzipSkill } from "./install.js";
 import { SkillStore, SkillStoreError } from "./store.js";
 
+const publicDns = async () => ["93.184.216.34"];
 const skillMd = "---\nname: demo-skill\ndescription: 演示网络安装\n---\n\n运行 scripts/run.py。\n";
 
 function fakeGithub(files: Record<string, string | number>, extra: Record<string, unknown> = {}) {
@@ -156,7 +157,7 @@ test("解析任意 https 链接，拒绝 http、本机和内网地址", () => {
 
 test("从 https 链接下载单个 SKILL.md", async () => {
     const source = parseSkillInstallUrl("https://example.com/demo/SKILL.md");
-    const { location, files } = await downloadSkill(source, async () => new Response(skillMd));
+    const { location, files } = await downloadSkill(source, async () => new Response(skillMd), publicDns);
     assert.equal(location, "example.com/demo/SKILL.md");
     const preview = buildInstallPreview(location, files);
     assert.equal(preview.name, "demo-skill");
@@ -165,7 +166,7 @@ test("从 https 链接下载单个 SKILL.md", async () => {
 
 test("从 zip 中取出含 SKILL.md 的目录，跳过隐藏文件", async (context) => {
     const zip = makeZip({ "demo/": "", "demo/SKILL.md": skillMd, "demo/scripts/run.py": "print(1)\n", "demo/.DS_Store": "x", "__MACOSX/demo/._SKILL.md": "x", "README.md": "outside" });
-    const files = await downloadUrlSkill(new URL("https://example.com/demo.zip"), async () => new Response(zip));
+    const files = await downloadUrlSkill(new URL("https://example.com/demo.zip"), async () => new Response(zip), publicDns);
     assert.deepEqual(files.map((file) => file.path).sort(), ["SKILL.md", "scripts/run.py"]);
     assert.equal(files.find((file) => file.path === "scripts/run.py")?.content.toString(), "print(1)\n");
     const stored = unzipSkill(makeZip({ "SKILL.md": skillMd }, false));
@@ -196,12 +197,34 @@ test("下载超过合计上限立即中止，重定向到内网被拒绝", async
             controller.enqueue(new Uint8Array(1024 * 1024));
         },
     });
-    await assert.rejects(downloadUrlSkill(new URL("https://example.com/huge.zip"), async () => new Response(huge)), /合计上限 5MB/);
+    await assert.rejects(downloadUrlSkill(new URL("https://example.com/huge.zip"), async () => new Response(huge), publicDns), /合计上限 5MB/);
     const redirect = async () => new Response(null, { status: 302, headers: { location: "https://127.0.0.1/a.zip" } });
-    await assert.rejects(downloadUrlSkill(new URL("https://example.com/a.zip"), redirect), /本机或局域网/);
+    await assert.rejects(downloadUrlSkill(new URL("https://example.com/a.zip"), redirect, publicDns), /本机或局域网/);
     let hops = 0;
     const chain = async (url: string) => (hops += 1, url.endsWith("/final") ? new Response(skillMd) : new Response(null, { status: 301, headers: { location: "/final" } }));
-    const files = await downloadUrlSkill(new URL("https://example.com/start"), chain);
+    const files = await downloadUrlSkill(new URL("https://example.com/start"), chain, publicDns);
     assert.equal(hops, 2);
     assert.equal(files[0].path, "SKILL.md");
+});
+
+test("域名解析到内网地址时拒绝下载，解析失败时交给代理", async () => {
+    for (const address of ["127.0.0.1", "10.0.0.8", "::1", "::ffff:192.168.1.1", "fd00::1", "169.254.169.254"]) assert.equal(isPrivateAddress(address), true, address);
+    for (const address of ["93.184.216.34", "2606:4700::1111"]) assert.equal(isPrivateAddress(address), false, address);
+    let fetched = 0;
+    const fetcher = async () => (fetched += 1, new Response(skillMd));
+    await assert.rejects(downloadUrlSkill(new URL("https://intranet.example.com/SKILL.md"), fetcher, async () => ["93.184.216.34", "10.0.0.5"]), /局域网/);
+    assert.equal(fetched, 0);
+    const redirect = async (url: string) => url.includes("public") ? new Response(null, { status: 302, headers: { location: "https://evil.example.com/SKILL.md" } }) : new Response(skillMd);
+    await assert.rejects(downloadUrlSkill(new URL("https://public.example.com/a"), redirect, async (host) => host.startsWith("evil") ? ["127.0.0.1"] : ["93.184.216.34"]), /局域网/);
+    const files = await downloadUrlSkill(new URL("https://proxy-only.example.com/SKILL.md"), fetcher, async () => { throw new Error("ENOTFOUND"); });
+    assert.equal(files[0].path, "SKILL.md");
+});
+
+test("域名解析卡住时按下载时限返回超时", async () => {
+    let fetched = false;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), 50);
+    const pending = downloadUrlSkill(new URL("https://slow.example.com/SKILL.md"), async () => (fetched = true, new Response(skillMd)), () => new Promise(() => undefined), controller.signal);
+    await assert.rejects(pending, /超时/);
+    assert.equal(fetched, false);
 });
