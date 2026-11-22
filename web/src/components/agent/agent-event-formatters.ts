@@ -328,7 +328,7 @@ export function toolName(name: string) {
 }
 
 const toolTranslationKeys: Record<string, string> = {
-    canvas_apply_ops: "canvasOps", canvas_get_state: "readCanvas", canvas_get_selection: "readSelection", canvas_export_snapshot: "exportSnapshot", canvas_create_node: "createNode", canvas_create_attachment_nodes: "addAttachments", canvas_create_text_node: "createText", canvas_create_text_nodes: "createTexts", canvas_create_config_node: "createConfig", canvas_create_image_prompt_flow: "createImageFlow", canvas_create_generation_flow: "createGenerationFlow", canvas_generate_text: "generateText", canvas_generate_image: "generateImage", canvas_generate_video: "generateVideo", canvas_generate_audio: "generateAudio", canvas_update_node: "updateNode", canvas_update_node_text: "updateText", canvas_move_nodes: "moveNodes", canvas_resize_node: "resizeNode", canvas_delete_nodes: "deleteNodes", canvas_connect_nodes: "connectNodes", canvas_select_nodes: "selectNodes", canvas_set_viewport: "setViewport", canvas_run_generation: "runGeneration", site_navigate: "openPage",
+    canvas_apply_ops: "canvasOps", canvas_get_state: "readCanvas", canvas_get_selection: "readSelection", canvas_export_snapshot: "exportSnapshot", canvas_create_node: "createNode", canvas_create_attachment_nodes: "addAttachments", canvas_create_text_node: "createText", canvas_create_text_nodes: "createTexts", canvas_create_config_node: "createConfig", canvas_create_image_prompt_flow: "createImageFlow", canvas_create_generation_flow: "createGenerationFlow", canvas_generate_text: "generateText", canvas_generate_image: "generateImage", canvas_generate_video: "generateVideo", canvas_generate_audio: "generateAudio", canvas_update_node: "updateNode", canvas_update_node_text: "updateText", canvas_move_nodes: "moveNodes", canvas_resize_node: "resizeNode", canvas_delete_nodes: "deleteNodes", canvas_connect_nodes: "connectNodes", canvas_select_nodes: "selectNodes", canvas_set_viewport: "setViewport", canvas_run_generation: "runGeneration", site_navigate: "openPage", memory_propose: "proposeMemory",
 };
 
 function siteToolSummary(name: string, result: unknown, input: unknown) {
@@ -366,6 +366,7 @@ function toolInputRows(name: string, input: unknown) {
     if (name === "prompts_search") return [detailRow(tr("searchContent"), objectField(input, "query"))].flatMap((row) => (row ? [row] : []));
     if (name === "canvas_create_text_node") return [detailRow(tr("textContent"), objectField(input, "text"))].flatMap((row) => (row ? [row] : []));
     if (name === "canvas_apply_ops") return [detailRow(tr("operationContent"), summarizeCanvasAgentOps((objectField(input, "ops") as CanvasAgentOp[] | undefined) || []))].flatMap((row) => (row ? [row] : []));
+    if (name === "memory_propose") return [detailRow(tr("memoryText"), objectField(input, "text")), detailRow(tr("memoryReason"), objectField(input, "reason"))].flatMap((row) => (row ? [row] : []));
     if (name === "canvas_create_attachment_nodes") return [detailRow(tr("imageCount"), Array.isArray(objectField(input, "attachmentIds")) ? (objectField(input, "attachmentIds") as unknown[]).length : 0)].flatMap((row) => (row ? [row] : []));
     return [];
 }
@@ -380,6 +381,7 @@ export function toolSummary(item?: AgentEventItem) {
     const connections = Array.isArray(connectionField) ? connectionField : [];
     if (name === "canvas_get_state") return Array.isArray(nodeField) || Array.isArray(connectionField) ? canvasContentSummary(nodes, connections.length) : tr("canvasRead");
     if (name === "canvas_get_selection") return tr("selectionRead");
+    if (name === "memory_propose") return objectField(result, "saved") === true ? tr("memorySaved") : objectField(result, "saved") === false ? tr("memoryNotSaved") : "";
     return "";
 }
 
@@ -509,6 +511,11 @@ const CANVAS_READ_TOOLS = new Set(["canvas_get_state", "canvas_get_selection", "
 /** 会改动画布的 MCP 工具：上层工具（建节点、移动、删除等）在服务端都会转成 canvas_apply_ops 执行。 */
 export function isCanvasMutationTool(name: string) {
     return name.startsWith("canvas_") && !CANVAS_READ_TOOLS.has(name);
+}
+
+/** Agent 提议保存记忆的工具；无论是否开启手动确认，都要用户确认后才保存。 */
+export function isMemoryProposalTool(name: string) {
+    return name === "memory_propose" || name.endsWith("__memory_propose");
 }
 
 export function isCanvasWriteTool(name: string) {

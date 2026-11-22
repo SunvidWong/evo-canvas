@@ -229,3 +229,45 @@ test("拒绝读取非对象格式的 interface 元数据", async (context) => {
 
     await assert.rejects(store.get("invalid-interface"), (error: unknown) => error instanceof SkillStoreError && error.statusCode === 409);
 });
+
+test("管理 Skill 资源文件：上传、列出、读取、删除", async (context) => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-skill-files-"));
+    context.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    const store = new SkillStore(workspace);
+    const created = await store.create({ name: "with-files", description: "带资源文件", instructions: "运行 scripts/run.py。" });
+    const skillDir = path.dirname(created.path);
+
+    await store.writeFile("with-files", "scripts/run.py", Buffer.from("print('hi')\n").toString("base64"));
+    await store.writeFile("with-files", "references/logo.png", Buffer.from([0x89, 0x50, 0x00, 0x01]).toString("base64"));
+    assert.deepEqual((await store.listFiles("with-files")).map((file) => [file.path, file.size]), [["references/logo.png", 4], ["scripts/run.py", 12]]);
+    assert.deepEqual(await store.readFile("with-files", "scripts/run.py").then(({ text, binary }) => ({ text, binary })), { text: "print('hi')\n", binary: false });
+    assert.equal((await store.readFile("with-files", "references/logo.png")).binary, true);
+
+    await store.writeFile("with-files", "scripts/run.py", Buffer.from("print('bye')\n").toString("base64"));
+    assert.equal((await store.readFile("with-files", "scripts/run.py")).text, "print('bye')\n");
+
+    await store.deleteFile("with-files", "scripts/run.py");
+    assert.deepEqual((await store.listFiles("with-files")).map((file) => file.path), ["references/logo.png"]);
+    await assert.rejects(fs.stat(path.join(skillDir, "scripts")), { code: "ENOENT" });
+    // 修改资源文件不影响 SKILL.md 的 revision。
+    assert.equal((await store.get("with-files")).revision, created.revision);
+});
+
+test("Skill 资源文件不能写出 Skill 目录或覆盖保留文件", async (context) => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-skill-files-"));
+    context.after(() => fs.rm(workspace, { recursive: true, force: true }));
+    const store = new SkillStore(workspace);
+    const created = await store.create({ name: "safe-files", description: "路径校验", instructions: "只做测试。" });
+    const skillDir = path.dirname(created.path);
+    const content = Buffer.from("x").toString("base64");
+    for (const bad of ["../escape.txt", "/etc/passwd", "scripts/../../x", ".hidden", "a//b", "SKILL.md", "agents/openai.yaml", "", "a\\..\\..\\x"]) {
+        await assert.rejects(store.writeFile("safe-files", bad, content), (error: unknown) => error instanceof SkillStoreError && error.statusCode === 400, bad);
+    }
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "canvas-skill-outside-"));
+    context.after(() => fs.rm(outside, { recursive: true, force: true }));
+    await fs.symlink(outside, path.join(skillDir, "linked"));
+    await assert.rejects(store.writeFile("safe-files", "linked/x.txt", content), (error: unknown) => error instanceof SkillStoreError && error.statusCode === 400);
+    assert.deepEqual(await fs.readdir(outside), []);
+    assert.deepEqual(await store.listFiles("safe-files"), []);
+    await assert.rejects(store.readFile("safe-files", "missing.txt"), (error: unknown) => error instanceof SkillStoreError && error.statusCode === 404);
+});

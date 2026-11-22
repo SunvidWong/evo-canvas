@@ -541,6 +541,7 @@ function toolHistorySummary(tool: string, item: unknown, input: unknown) {
     if (tool === "prompts_search") return `找到 ${numberValue(field(result, "total"))} 条提示词`;
     if (tool === "assets_list") return `共 ${numberValue(field(result, "total"))} 个资产`;
     if (tool === "assets_add") return "已加入我的素材";
+    if (tool === "memory_propose") return field(result, "saved") ? "已保存记忆" : "用户未保存这条记忆";
     if (tool === "generation_get_status") {
         const summary = field(result, "summary");
         return `共 ${numberValue(field(result, "total"))} 个任务，排队 ${numberValue(field(summary, "queued"))}，运行中 ${numberValue(field(summary, "running"))}，成功 ${numberValue(field(summary, "succeeded"))}，失败 ${numberValue(field(summary, "failed"))}`;
@@ -735,6 +736,7 @@ function toolName(name: string) {
     if (name === "prompts_search") return "搜索提示词";
     if (name === "assets_list") return "资产列表";
     if (name === "assets_add") return "添加资产";
+    if (name === "memory_propose") return "提议保存记忆";
     if (name === "generation_get_status") return "生成任务状态";
     return name ? `调用工具：${name}` : "工具操作";
 }

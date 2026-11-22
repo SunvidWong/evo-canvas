@@ -112,6 +112,59 @@ export function updateCodexSkill(endpoint: string, token: string, name: string, 
     return fetchAgentJson<AgentSkillResponse>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}`, jsonPost(input));
 }
 
+export type AgentSkillFile = { path: string; size: number; modifiedAt: number };
+export type AgentSkillFileContent = AgentSkillFile & { text?: string; binary: boolean };
+
+export function fetchCodexSkillFiles(endpoint: string, token: string, name: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFile[] }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files`);
+}
+
+export function fetchCodexSkillFile(endpoint: string, token: string, name: string, path: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFileContent }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/content?path=${encodeURIComponent(path)}`);
+}
+
+/** content 为 base64；同路径已存在时覆盖。 */
+export function uploadCodexSkillFile(endpoint: string, token: string, name: string, path: string, content: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillFile }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files`, jsonPost({ path, content }));
+}
+
+export function deleteCodexSkillFile(endpoint: string, token: string, name: string, path: string) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/files/delete`, jsonPost({ path }));
+}
+
+export type AgentMemoryItem = { id: string; text: string; enabled: boolean; createdAt: number; updatedAt: number };
+export type AgentMemoryState = { version: 1; enabled: boolean; items: AgentMemoryItem[] };
+
+export function fetchAgentMemory(endpoint: string, token: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryState }>(endpoint, token, "/agent/memory");
+}
+
+export function addAgentMemory(endpoint: string, token: string, text: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryItem }>(endpoint, token, "/agent/memory", jsonPost({ text }));
+}
+
+export function updateAgentMemory(endpoint: string, token: string, id: string, patch: { text?: string; enabled?: boolean }) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentMemoryItem }>(endpoint, token, `/agent/memory/${encodeURIComponent(id)}`, jsonPost(patch));
+}
+
+export function deleteAgentMemory(endpoint: string, token: string, id: string) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/memory/${encodeURIComponent(id)}/delete`, jsonPost({}));
+}
+
+export function setAgentMemoryEnabled(endpoint: string, token: string, enabled: boolean) {
+    return fetchAgentJson<{ ok?: boolean }>(endpoint, token, "/agent/memory/settings", jsonPost({ enabled }));
+}
+
+export type AgentSkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: AgentSkillFile[]; totalSize: number };
+
+export function previewCodexSkillInstall(endpoint: string, token: string, url: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: AgentSkillInstallPreview }>(endpoint, token, "/agent/codex/skills/install/preview", jsonPost({ url }));
+}
+
+export function installCodexSkill(endpoint: string, token: string, previewId: string) {
+    return fetchAgentJson<AgentSkillResponse>(endpoint, token, "/agent/codex/skills/install", jsonPost({ previewId }));
+}
+
 export function deleteCodexSkill(endpoint: string, token: string, name: string, expectedRevision: string) {
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, `/agent/codex/skills/${encodeURIComponent(name)}/delete`, jsonPost({ expectedRevision }));
 }

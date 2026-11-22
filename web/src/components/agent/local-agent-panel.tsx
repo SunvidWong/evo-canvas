@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { App, Button, Tooltip } from "antd";
 import dayjs from "dayjs";
-import { Bot, History, MessageSquare, PanelRightClose, PlugZap, Plus, Sparkles, Terminal } from "lucide-react";
+import { Bot, Brain, History, MessageSquare, PanelRightClose, PlugZap, Plus, Sparkles, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
@@ -21,7 +21,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useAgentStore, type AgentAttachment, type AgentBootstrapStatus, type AgentCanvasContext, type AgentCanvasReference, type AgentChatItem, type AgentConversationState, type AgentKind, type AgentModel, type AgentPendingApproval, type AgentPendingToolCall, type AgentPermissionMode, type AgentReasoningEffort, type AgentThreadSummary } from "@/stores/use-agent-store";
 import { type CanvasAgentOp, type CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { isSiteTool, runSiteTool } from "@/lib/agent/agent-site-tools";
-import { acknowledgeCodexHistory, activateAgentClient, AgentApiError, discoverAgentConfig, fetchAgentJson, interruptCodexTurn, postCodexApproval, postState, postToolHold, postToolResult } from "@/services/api/canvas-agent";
+import { acknowledgeCodexHistory, activateAgentClient, addAgentMemory, AgentApiError, type AgentMemoryState, discoverAgentConfig, fetchAgentJson, interruptCodexTurn, postCodexApproval, postState, postToolHold, postToolResult } from "@/services/api/canvas-agent";
 import { AgentChatTimeline, AgentTaskProgress, AgentUsageBar } from "./agent-chat";
 import { AgentChatComposer } from "./agent-chat-composer";
 import { AgentConnectView } from "./agent-connect-view";
@@ -43,6 +43,7 @@ import {
     bindPendingTurnMessages,
     isCanvasMutationTool,
     isCanvasWriteTool,
+    isMemoryProposalTool,
     isConnectionErrorMessage,
     isCurrentThreadEvent,
     isReasoningSummary,
@@ -65,6 +66,7 @@ import {
 } from "./agent-event-formatters";
 import { AgentHistoryView } from "./agent-history-view";
 import { AgentLogView } from "./agent-log-view";
+import { AgentMemoryView } from "./agent-memory-view";
 import { AgentPanelTabs } from "./agent-panel-tabs";
 import { AgentSkillsView } from "./agent-skills-view";
 
@@ -178,6 +180,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     const clearSkillSelection = useAgentSkillStore((state) => state.clearSelection);
     const skillCount = useAgentSkillStore((state) => state.skills.length);
     const messageCount = useAgentStore((state) => state.messages.length);
+    const memoryCount = useAgentStore((state) => state.memory?.items.length || 0);
     const canvasContextRef = useRef<AgentCanvasContext | null>(useAgentStore.getState().canvasContext);
     const confirmToolsRef = useRef(confirmTools);
     // Set after this tab applies canvas ops; the next completed canvas tool card claims the undo button.
@@ -537,6 +540,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
             const text = parseEventData<{ text?: unknown }>(event)?.text;
             addEventLog(rt("log"), text, text);
         });
+        source.addEventListener("memory_changed", (event) => {
+            if (!isCurrentConnection()) return;
+            const data = parseEventData<AgentMemoryState>(event);
+            if (data && Array.isArray(data.items)) setAgentState({ memory: data });
+        });
         source.addEventListener("skills_changed", (event) => {
             if (!isCurrentConnection()) return;
             const data = parseEventData<{ forceReload?: boolean }>(event);
@@ -799,7 +807,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     };
 
     const handleToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
-        if (confirmToolsRef.current && isCanvasWriteTool(payload.name)) {
+        // 记忆提议不受手动确认开关影响，必须由用户确认后才保存。
+        if (isMemoryProposalTool(payload.name) || (confirmToolsRef.current && isCanvasWriteTool(payload.name))) {
             setAgentState({ pendingTools: [...useAgentStore.getState().pendingTools, payload] });
             addEventLog(rt("awaitingConfirmation"), payload, payload);
             // 排队等待确认期间暂停 Agent 端的执行超时；失败时仍按原超时处理。
@@ -815,6 +824,19 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
     };
 
     const runToolCall = async (endpoint: string, token: string, payload: AgentPendingToolCall) => {
+        if (isMemoryProposalTool(payload.name)) {
+            try {
+                addEventLog(toolName(payload.name), payload, payload);
+                const saved = (await addAgentMemory(endpoint, token, String(payload.input?.text || ""))).data;
+                const result = { saved: true, id: saved?.id, text: saved?.text };
+                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, result });
+                addEventLog(rt("toolCompleted", { tool: toolName(payload.name) }), result, result);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : rt("toolExecutionFailed");
+                await postToolResult(endpoint, token, clientIdRef.current, { requestId: payload.requestId, error: message });
+            }
+            return;
+        }
         if (isSiteTool(payload.name)) {
             try {
                 addEventLog(toolName(payload.name), payload, payload);
@@ -881,7 +903,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
 
     const rejectPendingTools = async (requestIds: string[]) => {
         const tools = takePendingTools(requestIds);
-        await Promise.all(tools.map((tool) => postToolResult(endpoint, token, clientIdRef.current, { requestId: tool.requestId, error: rt("canvasToolCanceled") }).catch(() => undefined)));
+        // 拒绝记忆提议不算失败，告诉 Agent 用户没有保存，避免它反复重试。
+        await Promise.all(tools.map((tool) => postToolResult(endpoint, token, clientIdRef.current, isMemoryProposalTool(tool.name) ? { requestId: tool.requestId, result: { saved: false, message: rt("memoryDeclined") } } : { requestId: tool.requestId, error: rt("canvasToolCanceled") }).catch(() => undefined)));
     };
 
     /**
@@ -1402,6 +1425,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     { value: "chat", label: t("agent.panel.chat"), icon: <MessageSquare className="size-3.5" /> },
                     { value: "history", label: t("agent.panel.history"), icon: <History className="size-3.5" />, count: threads.length },
                     { value: "skills", label: t("agent.panel.skills"), icon: <Sparkles className="size-3.5" />, count: skillCount },
+                    { value: "memory", label: t("agent.panel.memory"), icon: <Brain className="size-3.5" />, count: memoryCount },
                     { value: "log", label: t("agent.panel.logs"), icon: <Terminal className="size-3.5" />, count: eventLogs.length },
                 ]}
                 onChange={(activeTab) => {
@@ -1437,6 +1461,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                 />
             ) : activeTab === "skills" ? (
                 <AgentSkillsView clientId={clientIdRef.current} />
+            ) : activeTab === "memory" ? (
+                <AgentMemoryView endpoint={endpoint} token={token} connected={connected} theme={theme} />
             ) : activeTab === "history" ? (
                 <AgentHistoryView
                     theme={theme}
