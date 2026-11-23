@@ -5,6 +5,8 @@ import { clearComfyProgress, setComfyProgress, type ComfyProgress } from "@/lib/
 import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 
+import { ComfySubgraphError, convertComfyUiWorkflow, isComfyUiWorkflow, type ComfyObjectInfo } from "./comfyui-convert";
+
 /** ComfyUI API 格式工作流：节点 id → { class_type, inputs }。 */
 export type ComfyWorkflow = Record<string, { class_type?: string; inputs?: Record<string, unknown>; _meta?: { title?: string } }>;
 export type ComfyVariables = {
@@ -600,4 +602,50 @@ export function parseComfyHistoryWorkflows(history: unknown): ComfyHistoryWorkfl
 /** 读取 ComfyUI 最近运行过的工作流，用来直接导入，免去手动「导出（API）」。 */
 export async function fetchComfyHistoryWorkflows(config: Pick<AiConfig, "baseUrl" | "apiKey">, maxItems = COMFY_HISTORY_IMPORT_LIMIT) {
     return parseComfyHistoryWorkflows(await comfyFetch<unknown>(config, `/history?max_items=${maxItems}`));
+}
+
+/** 读取 ComfyUI 的节点定义，用来把普通保存格式转成 API 格式，以及检查缺少的节点。 */
+export async function fetchComfyObjectInfo(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
+    const info = await comfyFetch<ComfyObjectInfo>(config, "/object_info");
+    if (!info || typeof info !== "object" || Array.isArray(info)) throw new Error(apiText("requestFailed"));
+    return info;
+}
+
+/** 列出 ComfyUI 用户目录里保存的工作流文件（相对 workflows 目录的路径）。 */
+export async function fetchComfySavedWorkflows(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
+    const files = await comfyFetch<unknown>(config, "/api/userdata?dir=workflows&recurse=true&split=false");
+    if (!Array.isArray(files)) return [];
+    return files
+        .map((item) => (typeof item === "string" ? item : item && typeof item === "object" && typeof (item as { path?: unknown }).path === "string" ? (item as { path: string }).path : ""))
+        .filter((file) => file.toLowerCase().endsWith(".json"))
+        .sort((a, b) => a.localeCompare(b));
+}
+
+/** 读取一个保存的工作流文件，返回原始 JSON 对象。 */
+export async function fetchComfySavedWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, file: string) {
+    return comfyFetch<unknown>(config, `/api/userdata/${encodeURIComponent(`workflows/${file}`)}`);
+}
+
+/**
+ * 把任意格式的工作流整理成 API 格式：普通保存格式用节点定义转换，API 格式原样返回；
+ * 两种情况都检查 ComfyUI 是否装了用到的节点，缺少时报错并列出名称。
+ */
+export function toComfyApiWorkflow(value: unknown, objectInfo: ComfyObjectInfo): ComfyWorkflow {
+    let workflow: ComfyWorkflow;
+    if (isComfyUiWorkflow(value)) {
+        let missing: string[];
+        try {
+            ({ workflow, missing } = convertComfyUiWorkflow(value, objectInfo));
+        } catch (error) {
+            if (error instanceof ComfySubgraphError) throw new Error(apiText("comfyWorkflowSubgraph"));
+            throw error;
+        }
+        if (missing.length) throw new Error(apiText("comfyWorkflowMissingNodes", { nodes: missing.join("、") }));
+        if (!Object.keys(workflow).length) throw new Error(apiText("comfyWorkflowInvalid"));
+        return workflow;
+    }
+    workflow = parseComfyWorkflow(JSON.stringify(value));
+    const missing = Array.from(new Set(Object.values(workflow).map((node) => node.class_type || "").filter((type) => type && !objectInfo[type])));
+    if (missing.length) throw new Error(apiText("comfyWorkflowMissingNodes", { nodes: missing.join("、") }));
+    return workflow;
 }

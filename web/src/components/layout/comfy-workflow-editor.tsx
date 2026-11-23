@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Checkbox, Empty, Input, Modal, Segmented, Select, Spin } from "antd";
-import { ChevronDown, ChevronRight, History, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, History, Upload, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -9,17 +9,22 @@ import {
     COMFY_PARAMS,
     comfyPlaceholderParams,
     fetchComfyHistoryWorkflows,
+    fetchComfyObjectInfo,
+    fetchComfySavedWorkflow,
+    fetchComfySavedWorkflows,
     listComfyInputs,
     listComfyOutputNodes,
     parseComfySettings,
     parseComfyWorkflow,
     serializeComfyWorkflow,
+    toComfyApiWorkflow,
     type ComfyCanvasSettings,
     type ComfyHistoryWorkflow,
     type ComfyInputRef,
     type ComfyParam,
     type ComfyWorkflow,
 } from "@/services/api/comfyui";
+import { isComfyUiWorkflow, type ComfyObjectInfo } from "@/services/api/comfyui-convert";
 import type { ModelCapability, ModelChannel } from "@/stores/use-config-store";
 
 export type ComfyWorkflowDraft = { name: string; capability: ModelCapability; workflow: string };
@@ -33,6 +38,20 @@ function splitStoredWorkflow(text: string): { workflow: string; settings: ComfyC
     } catch {
         return { workflow: text, settings: {} };
     }
+}
+
+/** 编辑框里是不是 ComfyUI 普通保存格式（需要转换）。 */
+function isUiFormatText(text: string) {
+    try {
+        return isComfyUiWorkflow(JSON.parse(text));
+    } catch {
+        return false;
+    }
+}
+
+/** 按输出节点建议用途：有视频输出就是视频，否则是生图。 */
+function suggestCapability(workflow: ComfyWorkflow): ModelCapability {
+    return listComfyOutputNodes(workflow).some((node) => node.kind === "video") ? "video" : "image";
 }
 
 function tryParseWorkflow(text: string): ComfyWorkflow | null {
@@ -68,6 +87,10 @@ export function ComfyWorkflowEditor({
     const [history, setHistory] = useState<{ loading: boolean; items: ComfyHistoryWorkflow[]; error: string } | null>(null);
     const [settings, setSettings] = useState<ComfyCanvasSettings>({});
     const [showMapping, setShowMapping] = useState(false);
+    const [saved, setSaved] = useState<{ loading: boolean; items: string[]; error: string } | null>(null);
+    const [converting, setConverting] = useState(false);
+    // 节点定义很大，打开编辑框期间只取一次。
+    const objectInfoRef = useRef<ComfyObjectInfo | null>(null);
 
     useEffect(() => {
         if (!open) return;
@@ -77,7 +100,64 @@ export function ComfyWorkflowEditor({
         setShowMapping(Boolean(stored.settings.mapping || stored.settings.outputNodes));
         setError("");
         setHistory(null);
+        setSaved(null);
+        objectInfoRef.current = null;
     }, [open, value]);
+
+    const objectInfo = async () => {
+        if (!channel) throw new Error(t("config.comfyWorkflow.convertNeedsChannel"));
+        objectInfoRef.current ||= await fetchComfyObjectInfo(channel);
+        return objectInfoRef.current;
+    };
+
+    /** 把普通保存格式或 API 格式整理成 API 格式填进编辑框，并检查缺少的节点。 */
+    const applyConverted = async (raw: unknown, name?: string) => {
+        const workflow = toComfyApiWorkflow(raw, await objectInfo());
+        setDraft((current) => ({ ...current, workflow: JSON.stringify(workflow, null, 2), capability: suggestCapability(workflow), name: current.name || name || "" }));
+        setSettings({});
+        setError("");
+    };
+
+    const convertDraft = async () => {
+        setConverting(true);
+        try {
+            await applyConverted(JSON.parse(draft.workflow));
+        } catch (convertError) {
+            setError(convertError instanceof Error ? convertError.message : String(convertError));
+        } finally {
+            setConverting(false);
+        }
+    };
+
+    const loadSaved = async () => {
+        if (!channel) return;
+        setHistory(null);
+        setSaved({ loading: true, items: [], error: "" });
+        try {
+            setSaved({ loading: false, items: await fetchComfySavedWorkflows(channel), error: "" });
+        } catch (loadError) {
+            setSaved({ loading: false, items: [], error: loadError instanceof Error ? loadError.message : String(loadError) });
+        }
+    };
+
+    const pickSaved = async (file: string) => {
+        if (!channel) return;
+        setConverting(true);
+        try {
+            await applyConverted(
+                await fetchComfySavedWorkflow(channel, file),
+                file
+                    .split("/")
+                    .pop()
+                    ?.replace(/\.json$/i, ""),
+            );
+            setSaved(null);
+        } catch (convertError) {
+            setSaved((current) => (current ? { ...current, error: convertError instanceof Error ? convertError.message : String(convertError) } : current));
+        } finally {
+            setConverting(false);
+        }
+    };
 
     const parsed = useMemo(() => tryParseWorkflow(draft.workflow), [draft.workflow]);
     const inputs = useMemo(() => (parsed ? listComfyInputs(parsed) : []), [parsed]);
@@ -92,6 +172,7 @@ export function ComfyWorkflowEditor({
 
     const loadHistory = async () => {
         if (!channel) return;
+        setSaved(null);
         setHistory({ loading: true, items: [], error: "" });
         try {
             setHistory({ loading: false, items: await fetchComfyHistoryWorkflows(channel), error: "" });
@@ -137,6 +218,17 @@ export function ComfyWorkflowEditor({
         setDraft((current) => ({ ...current, workflow: stored.workflow, name: current.name || file.name.replace(/\.json$/i, "") }));
         setSettings(stored.settings);
         setError("");
+        // 普通保存格式的文件直接转换；连不上 ComfyUI 时保留原文，提示里可以再点转换。
+        if (channel && isUiFormatText(stored.workflow)) {
+            setConverting(true);
+            try {
+                await applyConverted(JSON.parse(stored.workflow));
+            } catch (convertError) {
+                setError(convertError instanceof Error ? convertError.message : String(convertError));
+            } finally {
+                setConverting(false);
+            }
+        }
     };
 
     return (
@@ -160,6 +252,11 @@ export function ComfyWorkflowEditor({
                     <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="text-sm font-medium">{t("config.comfyWorkflow.json")}</span>
                         <div className="flex flex-wrap justify-end gap-2">
+                            {channel ? (
+                                <Button size="small" icon={<FolderOpen className="size-3.5" />} loading={saved?.loading} onClick={() => void loadSaved()}>
+                                    {t("config.comfyWorkflow.importSaved")}
+                                </Button>
+                            ) : null}
                             {channel ? (
                                 <Button size="small" icon={<History className="size-3.5" />} loading={history?.loading} onClick={() => void loadHistory()}>
                                     {t("config.comfyWorkflow.importHistory")}
@@ -206,10 +303,49 @@ export function ComfyWorkflowEditor({
                                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("config.comfyWorkflow.historyEmpty")} />
                             )}
                         </div>
-                    ) : history?.loading ? (
+                    ) : saved && !saved.loading ? (
+                        <div className="mb-2 rounded-lg border border-stone-200 p-2 dark:border-stone-700" data-testid="comfy-saved">
+                            <div className="mb-1 flex items-center justify-between text-xs text-stone-500">
+                                <span>{t("config.comfyWorkflow.savedTitle")}</span>
+                                <Button size="small" type="text" onClick={() => setSaved(null)}>
+                                    {t("config.comfyWorkflow.historyClose")}
+                                </Button>
+                            </div>
+                            {saved.error ? <Alert className="mb-1" type="error" showIcon message={<span className="whitespace-pre-line">{saved.error}</span>} /> : null}
+                            {saved.items.length ? (
+                                <Spin spinning={converting} size="small">
+                                    <div className="max-h-56 space-y-1 overflow-y-auto">
+                                        {saved.items.map((file) => (
+                                            <button key={file} type="button" className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm hover:bg-stone-100 dark:hover:bg-stone-800" onClick={() => void pickSaved(file)}>
+                                                <span className="min-w-0 truncate">{file.replace(/\.json$/i, "")}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </Spin>
+                            ) : !saved.error ? (
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("config.comfyWorkflow.savedEmpty")} />
+                            ) : null}
+                        </div>
+                    ) : history?.loading || saved?.loading ? (
                         <div className="mb-2 flex justify-center py-3">
                             <Spin size="small" />
                         </div>
+                    ) : null}
+                    {isUiFormatText(draft.workflow) ? (
+                        <Alert
+                            className="mb-2"
+                            type="warning"
+                            showIcon
+                            data-testid="comfy-ui-format"
+                            message={t(channel ? "config.comfyWorkflow.uiFormat" : "config.comfyWorkflow.uiFormatNoChannel")}
+                            action={
+                                channel ? (
+                                    <Button size="small" type="primary" icon={<Wand2 className="size-3.5" />} loading={converting} onClick={() => void convertDraft()}>
+                                        {t("config.comfyWorkflow.convert")}
+                                    </Button>
+                                ) : null
+                            }
+                        />
                     ) : null}
                     <Input.TextArea
                         value={draft.workflow}
@@ -277,7 +413,7 @@ export function ComfyWorkflowEditor({
                         ) : null}
                     </div>
                 ) : null}
-                {error ? <Alert type="error" showIcon message={error} /> : null}
+                {error ? <Alert type="error" showIcon message={<span className="whitespace-pre-line">{error}</span>} /> : null}
                 <div className="rounded-lg bg-stone-50 p-3 text-xs leading-5 text-stone-600 dark:bg-stone-900/50 dark:text-stone-300">
                     <div className="mb-1 font-medium">{t("config.comfyWorkflow.helpTitle")}</div>
                     <ol className="list-decimal space-y-0.5 pl-4">
