@@ -1,12 +1,12 @@
-import { Button, Drawer, Input, InputNumber, Segmented, Select, Space } from "antd";
+import { App, Button, Drawer, Input, InputNumber, Segmented, Select, Space, Tooltip } from "antd";
 import { saveAs } from "file-saver";
-import { CheckCircle2, Copy, Download, ListPlus, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, Download, ListPlus, ListX, MemoryStick, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
 import { ANTHROPIC_MAX_TOKENS } from "@/services/api/anthropic";
-import { comfyCopyName, comfyWorkflowFileName } from "@/services/api/comfyui";
+import { clearOwnComfyQueue, comfyCopyName, comfyWorkflowFileName, freeComfyMemory } from "@/services/api/comfyui";
 import { testChannelConnection, type ChannelTestResult } from "@/services/api/channel-test";
 import {
     API_CALL_FORMATS,
@@ -29,6 +29,8 @@ type ScriptTarget = { name: string; capability: ModelCapability; value: string }
 
 export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: boolean; channel: ModelChannel | null; onSave: (channel: ModelChannel) => void; onClose: () => void }) {
     const { t, i18n } = useTranslation();
+    const { message } = App.useApp();
+    const [comfyAction, setComfyAction] = useState<"free" | "clear" | null>(null);
     const [draft, setDraft] = useState<ModelChannel | null>(channel);
     const [selectOpen, setSelectOpen] = useState(false);
     const [scriptTarget, setScriptTarget] = useState<ScriptTarget | null>(null);
@@ -115,6 +117,25 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
         setTesting(false);
     };
 
+    /** 释放显存或清空本站排队任务；做完后如果已经测过连接，重新测一次刷新显存和队列数。 */
+    const runComfyAction = async (action: "free" | "clear") => {
+        setComfyAction(action);
+        try {
+            if (action === "free") {
+                await freeComfyMemory(draft);
+                message.success(t("config.channelEditor.freeMemoryDone"));
+            } else {
+                const count = await clearOwnComfyQueue(draft);
+                message.success(count ? t("config.channelEditor.clearQueueDone", { count }) : t("config.channelEditor.clearQueueEmpty"));
+            }
+            if (testResult?.ok) void runTest();
+        } catch (error) {
+            message.error(t("config.channelEditor.comfyActionFailed", { message: error instanceof Error ? error.message : String(error) }));
+        } finally {
+            setComfyAction(null);
+        }
+    };
+
     const save = () => {
         onSave({ ...draft, name: draft.name.trim() || t("config.channels.unnamed"), models: normalizeChannelModels(draft.models) });
         onClose();
@@ -177,8 +198,22 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                     <Button icon={<Plug className="size-4" />} loading={testing} onClick={() => void runTest()}>
                         {t("config.channelEditor.testConnection")}
                     </Button>
+                    {isComfy ? (
+                        <>
+                            <Tooltip title={t("config.channelEditor.freeMemoryHint")}>
+                                <Button data-testid="comfy-free-memory" icon={<MemoryStick className="size-4" />} loading={comfyAction === "free"} disabled={comfyAction === "clear"} onClick={() => void runComfyAction("free")}>
+                                    {t("config.channelEditor.freeMemory")}
+                                </Button>
+                            </Tooltip>
+                            <Tooltip title={t("config.channelEditor.clearQueueHint")}>
+                                <Button data-testid="comfy-clear-queue" icon={<ListX className="size-4" />} loading={comfyAction === "clear"} disabled={comfyAction === "free"} onClick={() => void runComfyAction("clear")}>
+                                    {t("config.channelEditor.clearQueue")}
+                                </Button>
+                            </Tooltip>
+                        </>
+                    ) : null}
                     {testResult ? (
-                        <div role="status" className={`min-w-0 flex-1 text-sm leading-6 ${testResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                        <div role="status" className={`min-w-0 flex-1 text-sm leading-6 ${isComfy ? "basis-full" : ""} ${testResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                             <span className="inline-flex items-center gap-1">
                                 {testResult.ok ? <CheckCircle2 className="size-4 shrink-0" /> : <XCircle className="size-4 shrink-0" />}
                                 {testResult.ok
@@ -195,6 +230,11 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                     ]
                                         .filter(Boolean)
                                         .join(" · ")}
+                                </span>
+                            ) : null}
+                            {testResult.ok && testResult.comfy?.queue ? (
+                                <span className="block text-xs text-stone-500" data-testid="comfy-queue">
+                                    {t("config.channelEditor.comfyQueue", testResult.comfy.queue)}
                                 </span>
                             ) : null}
                             {!testResult.ok && testResult.network ? <span className="block text-xs text-stone-500">{t(isComfy ? "config.channelEditor.testNetworkHintComfy" : "config.channelEditor.testNetworkHint")}</span> : null}
