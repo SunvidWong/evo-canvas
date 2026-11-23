@@ -25,6 +25,8 @@ export function mergeClaudeProvider(current: ClaudeProviderConfig | undefined, p
     return Object.fromEntries(Object.entries(next).filter(([, value]) => value)) as ClaudeProviderConfig;
 }
 
+const CLOUD_PROVIDER_SELECTORS = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
+
 /** 生成 Claude Code 子进程的环境变量；没有任何自定义设置时返回 undefined，沿用默认继承。 */
 export function claudeProviderEnv(provider: ClaudeProviderConfig | undefined, baseEnv: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> | undefined {
     if (!provider?.baseUrl && !provider?.authToken && !provider?.model) return undefined;
@@ -35,6 +37,10 @@ export function claudeProviderEnv(provider: ClaudeProviderConfig | undefined, ba
         // 去掉环境里的官方凭据，并总是给出自定义 Token，避免 Claude Code 回退到钥匙串里的登录令牌。
         delete env.ANTHROPIC_API_KEY;
         delete env.CLAUDE_CODE_OAUTH_TOKEN;
+        // 继承来的自定义请求头可能带着原来的凭据（例如 x-api-key），也不能发给新地址。
+        delete env.ANTHROPIC_CUSTOM_HEADERS;
+        // 环境里选了 Bedrock、Vertex 或 Foundry 时，Claude Code 会忽略 ANTHROPIC_BASE_URL，这里改回直连自定义地址。
+        for (const key of CLOUD_PROVIDER_SELECTORS) delete env[key];
         env.ANTHROPIC_AUTH_TOKEN = provider.authToken || "none";
     } else if (provider.authToken) {
         env.ANTHROPIC_AUTH_TOKEN = provider.authToken;

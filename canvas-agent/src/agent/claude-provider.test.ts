@@ -49,3 +49,11 @@ test("换成第三方地址时不带官方凭据，即使没填 Token", () => {
     assert.equal(env?.ANTHROPIC_MODEL, undefined);
     assert.equal(env?.PATH, "/bin");
 });
+
+test("换成第三方地址时去掉带凭据的自定义请求头和云厂商路由", () => {
+    const base = { ANTHROPIC_CUSTOM_HEADERS: "x-api-key: official", CLAUDE_CODE_USE_BEDROCK: "1", CLAUDE_CODE_USE_VERTEX: "1", CLAUDE_CODE_USE_FOUNDRY: "1", PATH: "/bin" };
+    const env = claudeProviderEnv({ baseUrl: "http://127.0.0.1:4000" }, base);
+    for (const key of ["ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"]) assert.equal(key in (env || {}), false);
+    // 只换模型时仍走原来的路由，不动这些设置。
+    assert.equal(claudeProviderEnv({ model: "x" }, base)?.CLAUDE_CODE_USE_BEDROCK, "1");
+});
