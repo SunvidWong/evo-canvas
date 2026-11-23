@@ -17,6 +17,16 @@ test("lists model, lora and sampler inputs that hold plain values", () => {
     expect(listComfyChoiceInputs(workflow).map((item) => item.ref)).toEqual(["3.sampler_name", "3.scheduler", "4.ckpt_name", "5.lora_name", "6.clip_name1", "6.clip_name2"]);
 });
 
+test("lists custom model loaders whose value is a model file", () => {
+    const custom: ComfyWorkflow = {
+        "10": { class_type: "SeedVR2LoadDiTModel", inputs: { model: "seedvr2_ema_3b_fp16.safetensors", device: "cuda:0" } },
+        "11": { class_type: "SeedVR2LoadVAEModel", inputs: { model: "ema_vae_fp16.safetensors", device: "cuda:0" } },
+        "12": { class_type: "UpscaleModelLoader", inputs: { model_name: "4x-UltraSharp.pth" } },
+        "13": { class_type: "CLIPTextEncode", inputs: { text: "a photo of model.safetensors", clip: ["4", 1] } },
+    };
+    expect(listComfyChoiceInputs(custom).map((item) => item.ref)).toEqual(["10.model", "11.model", "12.model_name"]);
+});
+
 test("lists lora strengths as tunables", () => {
     expect(listComfyTunableInputs(workflow).map((item) => item.ref)).toEqual(["3.steps", "5.strength_model", "5.strength_clip"]);
 });

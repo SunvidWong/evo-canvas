@@ -205,9 +205,13 @@ const TUNABLE_INPUTS = ["steps", "cfg", "denoise", "guidance", "length", "frames
 /** 从 ComfyUI 候选列表里选值的参数：模型文件、LoRA、采样器和调度器。 */
 const CHOICE_INPUT = /^(ckpt_name|unet_name|vae_name|clip_name\d*|lora_name|control_net_name|model_name|sampler_name|scheduler)$/;
 
+/** 自定义节点的模型参数名不统一（例如 SeedVR2LoadDiTModel.model），值是模型文件时也算。 */
+const MODEL_FILE_VALUE = /\.(safetensors|ckpt|pt|pth|bin|gguf|onnx|sft)$/i;
+const FREE_TEXT_INPUT = /text|prompt|string/i;
+
 /** 列出可以用下拉框切换的参数（模型文件、LoRA、采样器等，只列直接填值的），按节点顺序。 */
 export function listComfyChoiceInputs(workflow: ComfyWorkflow): ComfyInputOption[] {
-    return listComfyInputs(workflow).filter((item) => typeof item.value === "string" && CHOICE_INPUT.test(item.input));
+    return listComfyInputs(workflow).filter((item) => typeof item.value === "string" && (CHOICE_INPUT.test(item.input) || (MODEL_FILE_VALUE.test(item.value.trim()) && !FREE_TEXT_INPUT.test(item.input))));
 }
 
 /**
