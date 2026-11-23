@@ -714,3 +714,16 @@ export function toComfyApiWorkflow(value: unknown, objectInfo: ComfyObjectInfo):
     if (missing.length) throw new Error(apiText("comfyWorkflowMissingNodes", { nodes: missing.join("、") }));
     return workflow;
 }
+
+/** 复制工作流时生成不重名的名称：「名称 副本」「名称 副本 2」… */
+export function comfyCopyName(name: string, existing: string[], suffix: string): string {
+    const taken = new Set(existing);
+    const base = `${name} ${suffix}`;
+    if (!taken.has(base)) return base;
+    for (let index = 2; ; index++) if (!taken.has(`${base} ${index}`)) return `${base} ${index}`;
+}
+
+/** 导出单个工作流用的文件名：去掉文件系统不允许的字符。 */
+export function comfyWorkflowFileName(name: string): string {
+    return `${name.replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"}.json`;
+}

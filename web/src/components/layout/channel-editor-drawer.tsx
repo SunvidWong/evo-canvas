@@ -1,10 +1,12 @@
 import { Button, Drawer, Input, InputNumber, Segmented, Select, Space } from "antd";
-import { CheckCircle2, ListPlus, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
+import { saveAs } from "file-saver";
+import { CheckCircle2, Copy, Download, ListPlus, Plug, Plus, Trash2, Workflow, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
 import { ANTHROPIC_MAX_TOKENS } from "@/services/api/anthropic";
+import { comfyCopyName, comfyWorkflowFileName } from "@/services/api/comfyui";
 import { testChannelConnection, type ChannelTestResult } from "@/services/api/channel-test";
 import {
     API_CALL_FORMATS,
@@ -94,6 +96,13 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
 
     const setCapability = (name: string, capability: ModelCapability) => setModels(draft.models.map((model) => (model.name === name ? { ...model, capability } : model)));
     const setScript = (name: string, script: string) => setModels(draft.models.map((model) => (model.name === name ? { ...model, script: script || undefined } : model)));
+    const duplicateWorkflow = (model: ChannelModel) => {
+        const name = comfyCopyName(model.name, draft.models.map((item) => item.name), t("config.channelEditor.copySuffix"));
+        setModels([...draft.models, { ...model, name }]);
+    };
+    const exportWorkflow = (model: ChannelModel) => {
+        if (model.workflow) saveAs(new Blob([model.workflow], { type: "application/json;charset=utf-8" }), comfyWorkflowFileName(model.name));
+    };
     const removeModel = (name: string) => setModels(draft.models.filter((model) => model.name !== name));
 
     const runTest = async () => {
@@ -235,7 +244,14 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                     >
                                         {t(model.workflow ? "config.channelEditor.workflowReady" : "config.channelEditor.workflowMissing")}
                                     </Button>
-                                ) : (
+                                ) : null}
+                                {isComfy && model.workflow ? (
+                                    <>
+                                        <Button size="small" type="text" title={t("config.channelEditor.duplicateWorkflow")} aria-label={t("config.channelEditor.duplicateWorkflow")} data-testid="comfy-duplicate" icon={<Copy className="size-3.5" />} onClick={() => duplicateWorkflow(model)} />
+                                        <Button size="small" type="text" title={t("config.channelEditor.exportWorkflow")} aria-label={t("config.channelEditor.exportWorkflow")} data-testid="comfy-export" icon={<Download className="size-3.5" />} onClick={() => exportWorkflow(model)} />
+                                    </>
+                                ) : null}
+                                {isComfy ? null : (
                                     <Button size="small" type={model.script ? "primary" : "default"} ghost={Boolean(model.script)} onClick={() => setScriptTarget({ name: model.name, capability: model.capability, value: model.script || "" })}>
                                         {t(model.script ? "config.channelEditor.scriptReady" : "config.channelEditor.script")}
                                     </Button>

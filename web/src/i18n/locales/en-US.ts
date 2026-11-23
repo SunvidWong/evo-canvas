@@ -553,7 +553,7 @@ export default {
             addWorkflow: "Add workflow",
             workflowDescription: "{{count}} workflows added; each one is used as a model on the canvas.",
             workflowReady: "Workflow",
-            workflowMissing: "Workflow missing",
+            workflowMissing: "Workflow missing", copySuffix: "copy", duplicateWorkflow: "Duplicate workflow", exportWorkflow: "Export workflow JSON",
             workflowEmpty: "Click \"Add workflow\" and paste or import an API-format workflow exported from ComfyUI.",
         },
         comfyWorkflow: {
