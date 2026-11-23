@@ -6,7 +6,19 @@ import { useTranslation } from "react-i18next";
 import { CHANNEL_PRESETS, channelPresetName, findChannelPreset } from "@/lib/channel-presets";
 import { ANTHROPIC_MAX_TOKENS } from "@/services/api/anthropic";
 import { testChannelConnection, type ChannelTestResult } from "@/services/api/channel-test";
-import { API_CALL_FORMATS, apiFormatName, channelNeedsApiKey, normalizeMaxTokens, defaultBaseUrlForApiFormat, guessCapability, normalizeChannelModels, type ApiCallFormat, type ChannelModel, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
+import {
+    API_CALL_FORMATS,
+    apiFormatName,
+    channelNeedsApiKey,
+    normalizeMaxTokens,
+    defaultBaseUrlForApiFormat,
+    guessCapability,
+    normalizeChannelModels,
+    type ApiCallFormat,
+    type ChannelModel,
+    type ModelCapability,
+    type ModelChannel,
+} from "@/stores/use-config-store";
 import { ComfyWorkflowEditor, type ComfyWorkflowDraft } from "./comfy-workflow-editor";
 import { ModelScriptEditor } from "./model-script-editor";
 import { ModelSelectModal } from "./model-select-modal";
@@ -118,15 +130,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
             <div className="grid gap-4 md:grid-cols-2">
                 <label className="block md:col-span-2">
                     <span className="mb-1 block text-sm font-medium">{t("config.channelEditor.preset")}</span>
-                    <Select
-                        className="w-full"
-                        showSearch
-                        optionFilterProp="label"
-                        value={currentPreset?.id}
-                        placeholder={t("config.channelEditor.presetPlaceholder")}
-                        options={presetOptions}
-                        onChange={applyPreset}
-                    />
+                    <Select className="w-full" showSearch optionFilterProp="label" value={currentPreset?.id} placeholder={t("config.channelEditor.presetPlaceholder")} options={presetOptions} onChange={applyPreset} />
                     <span className="mt-1 block text-xs text-stone-500">{t("config.channelEditor.presetHint")}</span>
                 </label>
                 <label className="block">
@@ -174,6 +178,16 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                         : t("config.channelEditor.testOkModels", { ms: testResult.elapsedMs, count: testResult.modelCount })
                                     : t("config.channelEditor.testFailed", { message: testResult.message })}
                             </span>
+                            {testResult.ok && testResult.comfy && (testResult.comfy.version || testResult.comfy.devices.length) ? (
+                                <span className="block text-xs text-stone-500" data-testid="comfy-system">
+                                    {[
+                                        testResult.comfy.version ? `ComfyUI ${testResult.comfy.version}` : "",
+                                        ...testResult.comfy.devices.map((device) => (device.vramTotalGb ? t("config.channelEditor.comfyDevice", { name: device.name, free: device.vramFreeGb ?? "?", total: device.vramTotalGb }) : device.name)),
+                                    ]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                </span>
+                            ) : null}
                             {!testResult.ok && testResult.network ? <span className="block text-xs text-stone-500">{t(isComfy ? "config.channelEditor.testNetworkHintComfy" : "config.channelEditor.testNetworkHint")}</span> : null}
                         </div>
                     ) : null}
@@ -204,9 +218,21 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                 {model.name}
                             </span>
                             <div className="flex shrink-0 items-center gap-2">
-                                <Segmented size="small" value={model.capability} options={isComfy ? capabilityOptions.filter((option) => option.value !== "text") : capabilityOptions} onChange={(value) => setCapability(model.name, value as ModelCapability)} />
+                                <Segmented
+                                    size="small"
+                                    value={model.capability}
+                                    options={isComfy ? capabilityOptions.filter((option) => option.value !== "text") : capabilityOptions}
+                                    onChange={(value) => setCapability(model.name, value as ModelCapability)}
+                                />
                                 {isComfy ? (
-                                    <Button size="small" type={model.workflow ? "primary" : "default"} ghost={Boolean(model.workflow)} danger={!model.workflow} icon={<Workflow className="size-3.5" />} onClick={() => setWorkflowTarget({ value: { name: model.name, capability: model.capability, workflow: model.workflow || "" } })}>
+                                    <Button
+                                        size="small"
+                                        type={model.workflow ? "primary" : "default"}
+                                        ghost={Boolean(model.workflow)}
+                                        danger={!model.workflow}
+                                        icon={<Workflow className="size-3.5" />}
+                                        onClick={() => setWorkflowTarget({ value: { name: model.name, capability: model.capability, workflow: model.workflow || "" } })}
+                                    >
                                         {t(model.workflow ? "config.channelEditor.workflowReady" : "config.channelEditor.workflowMissing")}
                                     </Button>
                                 ) : (
@@ -225,14 +251,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
 
             <ModelSelectModal open={selectOpen} channel={draft} selectedNames={draft.models.map((model) => model.name)} onConfirm={applySelection} onClose={() => setSelectOpen(false)} />
 
-            <ComfyWorkflowEditor
-                open={Boolean(workflowTarget)}
-                value={workflowTarget?.value || null}
-                existingNames={draft.models.map((model) => model.name)}
-                channel={draft}
-                onSave={saveWorkflow}
-                onClose={() => setWorkflowTarget(null)}
-            />
+            <ComfyWorkflowEditor open={Boolean(workflowTarget)} value={workflowTarget?.value || null} existingNames={draft.models.map((model) => model.name)} channel={draft} onSave={saveWorkflow} onClose={() => setWorkflowTarget(null)} />
 
             <ModelScriptEditor
                 open={Boolean(scriptTarget)}

@@ -37,10 +37,10 @@ describe("渠道测试连接", () => {
     });
 
     test("ComfyUI 请求 /system_stats", async () => {
-        const calls = mockFetch(() => new Response(JSON.stringify({ system: {} }), { headers: { "content-type": "application/json" } }));
+        const calls = mockFetch(() => new Response(JSON.stringify({ system: { comfyui_version: "0.3.68" }, devices: [{ name: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", vram_total: 25769803776, vram_free: 12884901888 }] }), { headers: { "content-type": "application/json" } }));
         let tick = 0;
         const result = await testChannelConnection(createModelChannel({ apiFormat: "comfyui", baseUrl: "http://10.10.20.10:8188/" }), () => (tick += 40));
-        expect(result).toEqual({ ok: true, elapsedMs: 40 });
+        expect(result).toEqual({ ok: true, elapsedMs: 40, comfy: { version: "0.3.68", devices: [{ name: "NVIDIA GeForce RTX 4090", vramTotalGb: 24, vramFreeGb: 12 }] } });
         expect(calls[0].url).toBe("http://10.10.20.10:8188/system_stats");
     });
 
