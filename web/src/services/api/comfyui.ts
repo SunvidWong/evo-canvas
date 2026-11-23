@@ -193,7 +193,28 @@ export function listComfyOutputNodes(workflow: ComfyWorkflow): ComfyOutputNode[]
 }
 
 /** 画布没有对应输入、但常需要调的数值参数：采样器的步数、CFG、重绘幅度，视频的帧数和帧率。 */
-const TUNABLE_INPUTS = ["steps", "cfg", "denoise", "guidance", "length", "frames", "num_frames", "video_frames", "fps", "frame_rate"];
+const TUNABLE_INPUTS = ["steps", "cfg", "denoise", "guidance", "length", "frames", "num_frames", "video_frames", "fps", "frame_rate", "strength_model", "strength_clip"];
+
+/** 从 ComfyUI 候选列表里选值的参数：模型文件、LoRA、采样器和调度器。 */
+const CHOICE_INPUT = /^(ckpt_name|unet_name|vae_name|clip_name\d*|lora_name|control_net_name|model_name|sampler_name|scheduler)$/;
+
+/** 列出可以用下拉框切换的参数（模型文件、LoRA、采样器等，只列直接填值的），按节点顺序。 */
+export function listComfyChoiceInputs(workflow: ComfyWorkflow): ComfyInputOption[] {
+    return listComfyInputs(workflow).filter((item) => typeof item.value === "string" && CHOICE_INPUT.test(item.input));
+}
+
+/**
+ * 从 /object_info 读出某个节点参数的候选值。兼容两种写法：
+ * 旧版 [["a.safetensors", …], {…}]，新版 ["COMBO", { options: [...] }]。拿不到时返回 undefined。
+ */
+export function comfyInputChoices(objectInfo: ComfyObjectInfo | null | undefined, classType: string, input: string): string[] | undefined {
+    const definition = objectInfo?.[classType]?.input;
+    const spec = definition?.required?.[input] || definition?.optional?.[input];
+    if (!spec) return undefined;
+    const [type, options] = spec as [unknown, Record<string, unknown>?];
+    const list = Array.isArray(type) ? type : type === "COMBO" && Array.isArray(options?.options) ? options.options : undefined;
+    return list?.filter((item): item is string => typeof item === "string");
+}
 
 /** 列出可在编辑器里直接改的数值参数（只列直接填数字的，连线输入不列），按节点顺序。 */
 export function listComfyTunableInputs(workflow: ComfyWorkflow): ComfyInputOption[] {
