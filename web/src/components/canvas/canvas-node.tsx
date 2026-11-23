@@ -1,3 +1,4 @@
+import { useComfyNodeProgress } from "@/lib/comfy-progress";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
@@ -460,7 +461,7 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot && props.node.type === CanvasNodeType.Image) return <ImageNodeContent {...props} />;
     if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} />;
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} nodeId={props.node.id} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -499,12 +500,42 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
     );
 }
 
-function LoadingContent({ theme }: Pick<NodeContentRendererProps, "theme">) {
+function LoadingContent({ theme, nodeId }: Pick<NodeContentRendererProps, "theme"> & { nodeId?: string }) {
     const { t } = useTranslation();
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
             <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
+            <ComfyProgressLine nodeId={nodeId} theme={theme} />
+        </div>
+    );
+}
+
+/** ComfyUI 任务的排队位置或执行进度；其他协议没有进度时不显示。 */
+function ComfyProgressLine({ nodeId, imageId, theme }: { nodeId?: string; imageId?: string; theme: NodeContentRendererProps["theme"] }) {
+    const { t } = useTranslation();
+    // 批量生成时每张图有自己的进度，先看图片再看节点。
+    const progress = useComfyNodeProgress(imageId, nodeId);
+    if (!progress) return null;
+    const percent = progress.phase === "running" && progress.max ? Math.min(100, Math.round(((progress.value || 0) / progress.max) * 100)) : undefined;
+    const text =
+        progress.phase === "queued"
+            ? t("canvas.node.comfyQueued", { position: progress.position })
+            : percent !== undefined
+              ? t("canvas.node.comfyStep", { value: progress.value, max: progress.max, node: progress.node || "" })
+              : progress.node
+                ? t("canvas.node.comfyRunningNode", { node: progress.node })
+                : t("canvas.node.comfyRunning");
+    return (
+        <div className="flex w-[70%] max-w-[220px] flex-col items-center gap-1.5" data-testid="comfy-progress">
+            <span className="max-w-full truncate text-[11px]" style={{ color: theme.node.muted }}>
+                {text}
+            </span>
+            {percent !== undefined ? (
+                <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: theme.node.stroke }}>
+                    <div className="h-full rounded-full transition-[width]" style={{ width: `${percent}%`, background: theme.node.activeStroke }} />
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -798,7 +829,7 @@ function ImageContent({
                         className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                     />
                 ) : (
-                    <ImageSlotStatus image={primaryImage} />
+                    <ImageSlotStatus image={primaryImage} nodeId={node.id} />
                 )}
             </div>
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
@@ -879,7 +910,7 @@ function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, on
                 onView();
             }}
         >
-            {image.content ? <img src={source} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} />}
+            {image.content ? <img src={source} alt={node.title} draggable={false} className="pointer-events-none h-full w-full select-none object-contain" /> : <ImageSlotStatus image={image} nodeId={node.id} />}
             {image.content ? (
                 <div className="pointer-events-none absolute inset-x-2 top-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/node:pointer-events-auto group-hover/node:opacity-100">
                     <button type="button" className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 text-[10px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownload())}>
@@ -917,7 +948,7 @@ function BatchImageFailureActions({ placement, onRetry, onDelete }: { placement:
     );
 }
 
-function ImageSlotStatus({ image }: { image?: CanvasNodeImage }) {
+function ImageSlotStatus({ image, nodeId }: { image?: CanvasNodeImage; nodeId?: string }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const failed = image?.status === "error";
@@ -925,6 +956,7 @@ function ImageSlotStatus({ image }: { image?: CanvasNodeImage }) {
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
             {failed ? <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
             {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
+            {!failed ? <ComfyProgressLine nodeId={nodeId} imageId={image?.id} theme={theme} /> : null}
         </div>
     );
 }

@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { clearComfyProgress, setComfyProgress, type ComfyProgress } from "@/lib/comfy-progress";
 import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 
@@ -322,37 +323,135 @@ export async function uploadComfyImage(config: Pick<AiConfig, "baseUrl" | "apiKe
     return result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
 }
 
-/** 提交工作流并等待完成，返回生成的文件列表；取消节点生成会中止等待。 */
-export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, options?: RequestOptions & { outputNodes?: string[] }) {
-    const queued = await comfyFetch<{ prompt_id?: string; error?: unknown; node_errors?: Record<string, unknown> }>(config, "/prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: workflow, client_id: `infinite-canvas-${nanoid(8)}` }),
-        signal: options?.signal,
-    });
-    const promptId = queued?.prompt_id;
-    if (!promptId) throw new Error(comfyErrorMessage(queued) || apiText("requestFailed"));
+type ComfyQueue = { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+
+/** 在 /queue 里找到任务：正在执行返回 0，排队中返回前面还有几个任务 + 1，找不到返回 undefined。 */
+export function comfyQueuePosition(queue: ComfyQueue | undefined, promptId: string) {
+    if (queue?.queue_running?.some((item) => Array.isArray(item) && item[1] === promptId)) return 0;
+    const pending = (queue?.queue_pending || []).filter((item) => Array.isArray(item)).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const index = pending.findIndex((item) => item[1] === promptId);
+    return index >= 0 ? index + 1 : undefined;
+}
+
+/** 把 ComfyUI 的 http 地址换成 /ws 的 WebSocket 地址；相对地址（例如 /comfyui）按当前站点补全。 */
+export function comfySocketUrl(config: Pick<AiConfig, "baseUrl">, clientId: string) {
+    const raw = comfyUrl(config, `/ws?clientId=${encodeURIComponent(clientId)}`);
     try {
-        for (;;) {
-            await delay(POLL_INTERVAL_MS, options?.signal);
-            const history = await comfyFetch<ComfyHistory>(config, `/history/${encodeURIComponent(promptId)}`, { signal: options?.signal });
-            const entry = history?.[promptId];
-            if (!entry) continue;
-            if (entry.status?.status_str === "error") {
-                const failure = entry.status.messages?.find(([type]) => type === "execution_error")?.[1] as { exception_message?: string; node_type?: string } | undefined;
-                throw new Error(failure ? `${failure.node_type || "ComfyUI"}: ${failure.exception_message || ""}`.trim() : apiText("requestFailed"));
+        const url = new URL(raw, typeof location === "undefined" ? undefined : location.href);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        return url.toString();
+    } catch {
+        return "";
+    }
+}
+
+/** 订阅 ComfyUI 的执行进度；连不上（例如需要鉴权或代理不支持 WebSocket）时静默退回轮询。 */
+function watchComfySocket(config: Pick<AiConfig, "baseUrl" | "apiKey">, clientId: string, workflow: ComfyWorkflow, getPromptId: () => string | undefined, onProgress: (progress: ComfyProgress) => void) {
+    const url = typeof WebSocket === "undefined" ? "" : comfySocketUrl(config, clientId);
+    if (!url) return () => undefined;
+    let socket: WebSocket;
+    try {
+        socket = new WebSocket(url);
+    } catch {
+        return () => undefined;
+    }
+    const nodeName = (id: unknown) => (typeof id === "string" && workflow[id] ? workflow[id]._meta?.title || workflow[id].class_type || id : undefined);
+    let node: string | undefined;
+    socket.onmessage = (event) => {
+        if (typeof event.data !== "string") return;
+        let message: { type?: string; data?: { prompt_id?: string; node?: unknown; value?: unknown; max?: unknown } };
+        try {
+            message = JSON.parse(event.data);
+        } catch {
+            return;
+        }
+        const data = message.data || {};
+        if (data.prompt_id && data.prompt_id !== getPromptId()) return;
+        if (message.type === "execution_start") onProgress({ phase: "running" });
+        if (message.type === "executing" && data.node) {
+            node = nodeName(data.node);
+            onProgress({ phase: "running", node });
+        }
+        if (message.type === "progress" && typeof data.value === "number" && typeof data.max === "number" && data.max > 0) onProgress({ phase: "running", value: data.value, max: data.max, node: nodeName(data.node) || node });
+    };
+    socket.onerror = () => undefined;
+    return () => {
+        socket.onmessage = null;
+        try {
+            socket.close();
+        } catch {
+            // 已经关闭。
+        }
+    };
+}
+
+/** 取消任务：还在排队就从队列删掉；已经在执行就中断它，避免 ComfyUI 继续占着显卡。 */
+async function cancelComfyPrompt(config: Pick<AiConfig, "baseUrl" | "apiKey">, promptId: string) {
+    const post = (path: string, body: unknown) => fetch(comfyUrl(config, path), { method: "POST", headers: comfyHeaders(config, "application/json"), body: JSON.stringify(body) });
+    try {
+        const queue = await comfyFetch<ComfyQueue>(config, "/queue");
+        const position = comfyQueuePosition(queue, promptId);
+        if (position === 0) await post("/interrupt", { prompt_id: promptId });
+        else if (position !== undefined) await post("/queue", { delete: [promptId] });
+    } catch {
+        // 取消是尽力而为，失败时不影响画布这边的取消。
+    }
+}
+
+/** 提交工作流并等待完成，返回生成的文件列表。排队和执行进度通过 onProgress 回报；取消时会删掉排队中的任务或中断正在执行的任务。 */
+export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, options?: RequestOptions & { outputNodes?: string[]; onProgress?: (progress: ComfyProgress) => void }) {
+    const clientId = `infinite-canvas-${nanoid(8)}`;
+    let promptId: string | undefined;
+    let running = false;
+    const report = (progress: ComfyProgress) => {
+        if (progress.phase === "running") running = true;
+        else if (running) return;
+        options?.onProgress?.(progress);
+        setComfyProgress(options?.signal, clientId, progress);
+    };
+    const stopSocket = watchComfySocket(config, clientId, workflow, () => promptId, report);
+    try {
+        const queued = await comfyFetch<{ prompt_id?: string; error?: unknown; node_errors?: Record<string, unknown> }>(config, "/prompt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: workflow, client_id: clientId }),
+            signal: options?.signal,
+        });
+        promptId = queued?.prompt_id;
+        if (!promptId) throw new Error(comfyErrorMessage(queued) || apiText("requestFailed"));
+        try {
+            for (;;) {
+                // 开始执行前顺便查一下排队位置；查询失败不影响等待结果。
+                if (!running) {
+                    const queue = await comfyFetch<ComfyQueue>(config, "/queue", { signal: options?.signal }).catch((error) => {
+                        if (error instanceof DOMException && error.name === "AbortError") throw error;
+                        return undefined;
+                    });
+                    const position = comfyQueuePosition(queue, promptId);
+                    if (position === 0) report({ phase: "running" });
+                    else if (position !== undefined) report({ phase: "queued", position });
+                }
+                await delay(POLL_INTERVAL_MS, options?.signal);
+                const history = await comfyFetch<ComfyHistory>(config, `/history/${encodeURIComponent(promptId)}`, { signal: options?.signal });
+                const entry = history?.[promptId];
+                if (!entry) continue;
+                if (entry.status?.status_str === "error") {
+                    const failure = entry.status.messages?.find(([type]) => type === "execution_error")?.[1] as { exception_message?: string; node_type?: string } | undefined;
+                    throw new Error(failure ? `${failure.node_type || "ComfyUI"}: ${failure.exception_message || ""}`.trim() : apiText("requestFailed"));
+                }
+                if (entry.status?.completed === false) continue;
+                const files = collectComfyOutputs(entry.outputs, options?.outputNodes);
+                if (!files.length) throw new Error(apiText("comfyNoOutput"));
+                return files;
             }
-            if (entry.status?.completed === false) continue;
-            const files = collectComfyOutputs(entry.outputs, options?.outputNodes);
-            if (!files.length) throw new Error(apiText("comfyNoOutput"));
-            return files;
+        } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") void cancelComfyPrompt(config, promptId);
+            throw error;
         }
-    } catch (error) {
-        // 取消时顺手让 ComfyUI 删掉排队中的任务，正在跑的任务交给 ComfyUI 自己的中断按钮。
-        if (error instanceof DOMException && error.name === "AbortError") {
-            void fetch(comfyUrl(config, "/queue"), { method: "POST", headers: comfyHeaders(config, "application/json"), body: JSON.stringify({ delete: [promptId] }) }).catch(() => undefined);
-        }
-        throw error;
+    } finally {
+        stopSocket();
+        clearComfyProgress(options?.signal, clientId);
     }
 }
 
