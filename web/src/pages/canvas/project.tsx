@@ -1,3 +1,4 @@
+import { bindComfyProgressNode, unbindComfyProgress } from "@/lib/comfy-progress";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -308,12 +309,15 @@ function InfiniteCanvasPage() {
         const previous = generationRequestsRef.current.get(targetNodeId);
         if (previous?.controller !== controller) previous?.controller.abort();
         generationRequestsRef.current.set(targetNodeId, { targetNodeId, originNodeId, runningNodeId: runningId, controller });
+        // ComfyUI 任务会按这个 signal 回报排队和执行进度，绑到节点上用于显示。
+        bindComfyProgressNode(controller.signal, targetNodeId);
         return controller;
     }, []);
 
     const finishGenerationRequest = useCallback((targetNodeId: string, controller: AbortController) => {
         const request = generationRequestsRef.current.get(targetNodeId);
         if (request?.controller === controller) generationRequestsRef.current.delete(targetNodeId);
+        if (![...generationRequestsRef.current.values()].some((item) => item.controller === controller)) unbindComfyProgress(controller.signal);
     }, []);
 
     const completeVideoNodeTask = useCallback(

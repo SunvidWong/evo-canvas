@@ -16,9 +16,24 @@ afterAll(() => {
     else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
+const { bindComfyProgressNode, getComfyNodeProgress } = await import("../src/lib/comfy-progress");
 const { buildApiUrl, channelNeedsApiKey, guessCapability, upsertChannelCredentials, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
-const { autoComfyInputs, generateComfyVideo, buildComfyWorkflow, collectComfyOutputs, comfyPlaceholderParams, listComfyInputs, listComfyOutputNodes, parseComfyHistoryWorkflows, parseComfySettings, parseComfyWorkflow, serializeComfyWorkflow } =
-    await import("../src/services/api/comfyui");
+const {
+    autoComfyInputs,
+    comfyQueuePosition,
+    comfySocketUrl,
+    generateComfyVideo,
+    runComfyWorkflow,
+    buildComfyWorkflow,
+    collectComfyOutputs,
+    comfyPlaceholderParams,
+    listComfyInputs,
+    listComfyOutputNodes,
+    parseComfyHistoryWorkflows,
+    parseComfySettings,
+    parseComfyWorkflow,
+    serializeComfyWorkflow,
+} = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
 const { CHANNEL_PRESETS, findChannelPreset } = await import("../src/lib/channel-presets");
@@ -247,6 +262,68 @@ describe("ComfyUI 工作流", () => {
             expect(calls.find((call) => call.url.includes("/view"))?.url).toContain("filename=final.mp4");
         } finally {
             globalThis.fetch = originalFetch;
+        }
+    });
+
+    test("排队位置和 WebSocket 地址", () => {
+        const queue = {
+            queue_running: [[5, "run"]],
+            queue_pending: [
+                [9, "c"],
+                [7, "a"],
+                [8, "b"],
+            ],
+        };
+        expect(comfyQueuePosition(queue, "run")).toBe(0);
+        expect(comfyQueuePosition(queue, "a")).toBe(1);
+        expect(comfyQueuePosition(queue, "c")).toBe(3);
+        expect(comfyQueuePosition(queue, "gone")).toBeUndefined();
+        expect(comfyQueuePosition(undefined, "a")).toBeUndefined();
+        expect(comfySocketUrl({ baseUrl: "http://10.10.20.10:8188/" }, "c1")).toBe("ws://10.10.20.10:8188/ws?clientId=c1");
+        expect(comfySocketUrl({ baseUrl: "https://comfy.example.com/sub" }, "c1")).toBe("wss://comfy.example.com/sub/ws?clientId=c1");
+    });
+
+    test("排队时回报位置并绑到节点上，取消时排队中的任务从队列删除、执行中的任务被中断", async () => {
+        const originalFetch = globalThis.fetch;
+        for (const runningNow of [false, true]) {
+            const calls: Array<{ url: string; body?: string }> = [];
+            const controller = new AbortController();
+            bindComfyProgressNode(controller.signal, "node-1");
+            const seen: unknown[] = [];
+            globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = String(input);
+                calls.push({ url, body: typeof init?.body === "string" ? init.body : undefined });
+                if (url.endsWith("/prompt")) return new Response(JSON.stringify({ prompt_id: "p9" }));
+                if (url.endsWith("/queue") && !init?.method)
+                    return new Response(
+                        JSON.stringify(
+                            runningNow
+                                ? { queue_running: [[1, "p9"]], queue_pending: [] }
+                                : {
+                                      queue_running: [[1, "other"]],
+                                      queue_pending: [
+                                          [2, "x"],
+                                          [3, "p9"],
+                                      ],
+                                  },
+                        ),
+                    );
+                return new Response("{}");
+            }) as typeof fetch;
+            try {
+                const run = runComfyWorkflow({ baseUrl: "http://comfy.local", apiKey: "" }, { "1": { class_type: "KSampler", inputs: {} } }, { signal: controller.signal, onProgress: (progress) => seen.push(progress) });
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                expect(getComfyNodeProgress("node-1")).toEqual(runningNow ? { phase: "running" } : { phase: "queued", position: 2 });
+                controller.abort();
+                await expect(run).rejects.toThrow();
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(seen.length).toBeGreaterThan(0);
+                expect(getComfyNodeProgress("node-1")).toBeUndefined();
+                const cancel = calls.filter((call) => call.body && !call.url.endsWith("/prompt"));
+                expect(cancel.map((call) => [call.url.replace("http://comfy.local", ""), JSON.parse(call.body || "{}")])).toEqual([runningNow ? ["/interrupt", { prompt_id: "p9" }] : ["/queue", { delete: ["p9"] }]]);
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
         }
     });
 
