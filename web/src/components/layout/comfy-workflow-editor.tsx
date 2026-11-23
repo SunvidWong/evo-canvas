@@ -92,6 +92,8 @@ export function ComfyWorkflowEditor({
     const [showMapping, setShowMapping] = useState(false);
     const [saved, setSaved] = useState<{ loading: boolean; items: string[]; error: string } | null>(null);
     const [converting, setConverting] = useState(false);
+    /** 转换时显示的进度文字：第一次要从 ComfyUI 读取全部节点定义，节点多时要十几秒。 */
+    const [convertStage, setConvertStage] = useState<"nodes" | "convert">("convert");
     // 节点定义很大，打开编辑框期间只取一次。
     const objectInfoRef = useRef<ComfyObjectInfo | null>(null);
 
@@ -109,7 +111,14 @@ export function ComfyWorkflowEditor({
 
     const objectInfo = async () => {
         if (!channel) throw new Error(t("config.comfyWorkflow.convertNeedsChannel"));
-        objectInfoRef.current ||= await fetchComfyObjectInfo(channel);
+        if (!objectInfoRef.current) {
+            setConvertStage("nodes");
+            try {
+                objectInfoRef.current = await fetchComfyObjectInfo(channel);
+            } finally {
+                setConvertStage("convert");
+            }
+        }
         return objectInfoRef.current;
     };
 
@@ -185,7 +194,11 @@ export function ComfyWorkflowEditor({
     const placeholders = useMemo(() => new Set(parsed ? comfyPlaceholderParams(parsed) : []), [parsed]);
     const inputLabel = (ref: ComfyInputRef) => {
         const item = inputs.find((option) => option.ref === ref);
-        return item ? `#${item.nodeId} ${item.title || item.classType} · ${item.input}` : ref;
+        if (item) return `#${item.nodeId} ${item.title || item.classType} · ${item.input}`;
+        // 自动识别可能指向连线输入（例如连到分辨率选择节点的宽高），列表里没有，按节点信息显示。
+        const [nodeId, input] = [ref.slice(0, ref.indexOf(".")), ref.slice(ref.indexOf(".") + 1)];
+        const node = parsed?.[nodeId];
+        return node ? `#${nodeId} ${node._meta?.title || node.class_type} · ${input}` : ref;
     };
     const setMapping = (param: ComfyParam, refs: ComfyInputRef[]) => setSettings((current) => ({ ...current, mapping: { ...current.mapping, [param]: refs } }));
 
@@ -348,6 +361,12 @@ export function ComfyWorkflowEditor({
                     ) : history?.loading || saved?.loading ? (
                         <div className="mb-2 flex justify-center py-3">
                             <Spin size="small" />
+                        </div>
+                    ) : null}
+                    {converting ? (
+                        <div className="mb-2 flex items-center gap-2 text-xs text-stone-500" data-testid="comfy-converting">
+                            <Spin size="small" />
+                            {t(convertStage === "nodes" ? "config.comfyWorkflow.convertLoadingNodes" : "config.comfyWorkflow.converting")}
                         </div>
                     ) : null}
                     {isUiFormatText(draft.workflow) ? (

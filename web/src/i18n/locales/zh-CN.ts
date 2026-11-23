@@ -591,7 +591,7 @@ export default {
             mappingNone: "自动：未识别，不填",
             mappingPlaceholder: "已用占位符",
             params: { prompt: "提示词", width: "宽度", height: "高度", count: "张数", seed: "随机种子", seconds: "时长（秒）", image: "参考图（按顺序）" },
-            seedRandom: "每次随机", seedFixed: "固定", seedRandomHint: "每次生成换一个种子", seedFixedHint: "保留工作流里写的种子，同样的设置能出同一张图", tunableTitle: "采样与视频参数", tunableHint: "画布里没有这些设置，在这里改的值会直接写进工作流。", outputTitle: "取结果的输出节点",
+            seedRandom: "每次随机", seedFixed: "固定", seedRandomHint: "每次生成换一个种子", seedFixedHint: "保留工作流里写的种子，同样的设置能出同一张图", tunableTitle: "采样与视频参数", tunableHint: "画布里没有这些设置，在这里改的值会直接写进工作流。", convertLoadingNodes: "正在从 ComfyUI 读取节点定义，节点多时要十几秒，只在第一次读取…", converting: "正在转换成 API 格式…", outputTitle: "取结果的输出节点",
             outputHint: "不勾选时取所有输出节点的结果；勾选的节点都没产出时也会退回全部输出。",
             outputNone: "没找到 Save/Preview 类输出节点，将取 ComfyUI 返回的全部输出。",
         },

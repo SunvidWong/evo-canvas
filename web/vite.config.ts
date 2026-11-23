@@ -48,8 +48,11 @@ function comfyProxy() {
             changeOrigin: true,
             ws: true,
             rewrite: (path: string) => path.replace(/^\/comfyui/, "") || "/",
-            // ComfyUI 会拒绝 Origin 与自身地址不一致的请求。
-            configure: (proxy: { on: (event: "proxyReq", handler: (request: { removeHeader: (name: string) => void }) => void) => void }) => proxy.on("proxyReq", (request) => request.removeHeader("origin")),
+            // ComfyUI 会拒绝 Origin 与自身地址不一致的请求；普通请求和 WebSocket 升级请求（进度推送）都要去掉。
+            configure: (proxy: { on: (event: "proxyReq" | "proxyReqWs", handler: (request: { removeHeader: (name: string) => void }) => void) => void }) => {
+                proxy.on("proxyReq", (request) => request.removeHeader("origin"));
+                proxy.on("proxyReqWs", (request) => request.removeHeader("origin"));
+            },
         },
     };
 }
