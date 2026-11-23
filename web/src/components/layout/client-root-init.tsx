@@ -20,14 +20,14 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         const searchParams = new URLSearchParams(window.location.search);
         const baseUrl = searchParams.get("baseUrl") || searchParams.get("baseurl");
         const apiKey = searchParams.get("apiKey") || searchParams.get("apikey");
+        const apiFormat = searchParams.get("apiFormat") || searchParams.get("apiformat") || searchParams.get("protocol");
+        const name = searchParams.get("name");
         if (!baseUrl && !apiKey) return;
         handledConfigParams.current = true;
-        searchParams.delete("baseUrl");
-        searchParams.delete("baseurl");
-        searchParams.delete("apiKey");
-        searchParams.delete("apikey");
+        // 凭据参数用完就从地址栏去掉，避免留在历史记录或被分享出去。
+        for (const key of ["baseUrl", "baseurl", "apiKey", "apikey", "apiFormat", "apiformat", "protocol", "name"]) searchParams.delete(key);
         window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
-        const result = importChannelCredentials({ baseUrl, apiKey });
+        const result = importChannelCredentials({ baseUrl, apiKey, apiFormat, name });
         openConfigDialog(false, "channels");
         if (result.status === "created") message.success(t("config.importedChannelCreated", { name: result.channelName }));
         else if (result.status === "updated") message.success(t("config.importedChannelUpdated", { name: result.channelName }));

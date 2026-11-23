@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [新增] 通过链接导入渠道时支持 `apiFormat`（或 `protocol`）和 `name` 参数；不指定协议时按厂商预设自动识别。
 + [新增] Docker 镜像支持 `COMFYUI_URL` 环境变量：设置后 `/comfyui/` 同源转发到局域网的 ComfyUI，渠道地址填 `/comfyui` 即可，不用再给 ComfyUI 开跨域；本地开发同样支持。
 + [调整] 拉取模型时能识别更多国内外生图、视频和语音模型（通义万相、混元、可灵、即梦、Seedance、CogVideoX、CosyVoice 等），名字里写明 t2i、i2v、video、image 的按用途优先判断。
 + [新增] ComfyUI 渠道可「从最近运行导入」工作流：在 ComfyUI 里跑一次后直接选取，不用再手动导出 API 格式。

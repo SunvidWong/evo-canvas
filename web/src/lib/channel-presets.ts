@@ -44,6 +44,12 @@ export function findChannelPreset(apiFormat: ApiCallFormat, baseUrl: string) {
     return CHANNEL_PRESETS.find((preset) => preset.apiFormat === apiFormat && preset.baseUrl.toLowerCase() === normalized);
 }
 
+/** 只按地址找预设（不限协议），用于链接导入时推断协议。 */
+export function findChannelPresetByUrl(baseUrl: string) {
+    const normalized = baseUrl.trim().replace(/\/+$/, "").toLowerCase();
+    return CHANNEL_PRESETS.find((preset) => preset.baseUrl.toLowerCase() === normalized);
+}
+
 export function channelPresetName(preset: ChannelPreset, locale: string | undefined) {
     return locale === "zh-CN" ? preset.name : preset.nameEn || preset.name;
 }

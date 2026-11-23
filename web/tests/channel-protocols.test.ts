@@ -16,7 +16,7 @@ afterAll(() => {
     else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-const { buildApiUrl, channelNeedsApiKey, guessCapability, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
+const { buildApiUrl, channelNeedsApiKey, guessCapability, upsertChannelCredentials, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
 const { buildComfyWorkflow, collectComfyOutputs, parseComfyHistoryWorkflows, parseComfyWorkflow } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
@@ -173,5 +173,33 @@ describe("ComfyUI 工作流", () => {
         expect(vhsImage[0].capability).toBe("image");
         const noOutputs = parseComfyHistoryWorkflows({ b: { prompt: [0, "b", { "1": { class_type: "VHS_VideoCombine", inputs: {} } }] } });
         expect(noOutputs[0].capability).toBe("video");
+    });
+});
+
+describe("链接导入渠道", () => {
+    const empty = { channels: [] } as never;
+    const created = (input: Parameters<typeof upsertChannelCredentials>[1]) => {
+        const result = upsertChannelCredentials(empty, input);
+        return (result.config as { channels: Array<{ name: string; apiFormat: string; baseUrl: string; apiKey: string }> }).channels[0];
+    };
+
+    test("按地址匹配预设推断协议和名称", () => {
+        expect(created({ baseUrl: "https://api.deepseek.com/v1", apiKey: "sk" })).toMatchObject({ apiFormat: "openai-chat", name: "DeepSeek" });
+        expect(created({ baseUrl: "https://api.anthropic.com" })).toMatchObject({ apiFormat: "anthropic" });
+        expect(created({ baseUrl: "https://relay.example.com/v1" })).toMatchObject({ apiFormat: "openai", name: "relay.example.com" });
+    });
+
+    test("显式协议和名称优先，未知协议忽略", () => {
+        expect(created({ baseUrl: "http://10.10.20.10:8188", apiFormat: "ComfyUI", name: "家里的 ComfyUI" })).toMatchObject({ apiFormat: "comfyui", name: "家里的 ComfyUI" });
+        expect(created({ baseUrl: "https://relay.example.com/v1", apiFormat: "bogus" })).toMatchObject({ apiFormat: "openai" });
+    });
+
+    test("已有同地址渠道时可改协议，不改名称", () => {
+        const first = upsertChannelCredentials(empty, { baseUrl: "https://relay.example.com/v1", apiKey: "a", name: "中转" });
+        const second = upsertChannelCredentials(first.config, { baseUrl: "https://relay.example.com/v1", apiFormat: "anthropic" });
+        const channels = (second.config as { channels: Array<{ name: string; apiFormat: string; apiKey: string }> }).channels;
+        expect(second.status).toBe("updated");
+        expect(channels).toHaveLength(1);
+        expect(channels[0]).toMatchObject({ name: "中转", apiFormat: "anthropic", apiKey: "a" });
     });
 });
