@@ -1,7 +1,7 @@
 import { getComfyNodeProgress, useComfyNodePreview, useComfyNodeProgress } from "@/lib/comfy-progress";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
+import { AlertCircle, ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
@@ -842,6 +842,7 @@ function ImageContent({
                 )}
             </div>
             {primaryContent ? <BatchPendingBadge node={node} images={images} /> : null}
+            {primaryContent && isBatchRoot && !batchExpanded ? <BatchFailedBadge node={node} images={images} onExpand={onToggleBatch} /> : null}
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {primaryImage?.content ? (
                 <button type="button" className="pointer-events-none absolute left-2.5 top-2.5 z-30 flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-medium opacity-0 shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02] group-hover/node:pointer-events-auto group-hover/node:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownloadBatchImage?.(primaryImage.id))}>
@@ -885,6 +886,32 @@ function BatchPendingBadge({ node, images }: { node: CanvasNodeData; images: Can
             </div>
             <BatchPendingProgress imageIds={pending.map((image) => image.id)} nodeId={node.id} theme={theme} />
         </div>
+    );
+}
+
+/** 主图成功、但组里有图片失败或被取消时，在主图底部提示几张失败，点一下展开图片组去重试或删除。 */
+function BatchFailedBadge({ node, images, onExpand }: { node: CanvasNodeData; images: CanvasNodeImage[]; onExpand?: () => void }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
+    const failed = images.filter((image) => image.status === "error").length;
+    if (!failed || node.metadata?.status === "loading") return null;
+    return (
+        <button
+            type="button"
+            className="absolute bottom-3 left-1/2 z-30 flex h-7 -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[11px] font-medium shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02]"
+            style={{ background: theme.toolbar.panel, borderColor: "rgb(248 113 113 / 0.6)", color: "rgb(239 68 68)" }}
+            data-testid="batch-failed"
+            title={t("canvas.node.batchFailedHint")}
+            onClick={(event) => {
+                event.stopPropagation();
+                onExpand?.();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+        >
+            <AlertCircle className="size-3.5" />
+            {t("canvas.node.batchFailed", { count: failed, total: images.length })}
+        </button>
     );
 }
 
