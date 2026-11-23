@@ -104,38 +104,145 @@ function positivePromptNode(workflow: ComfyWorkflow) {
     return Object.values(workflow).find((node) => PROMPT_CLASS.test(node.class_type || "") && typeof node.inputs?.text === "string");
 }
 
+/** 画布能填进工作流的参数；image 按顺序对应第 1、2… 张参考图。 */
+// 画布目前没有反向提示词输入，所以不提供映射；工作流里仍可写 {{negative_prompt}} 占位符（替换为空）。
+export const COMFY_PARAMS = ["prompt", "width", "height", "count", "seed", "seconds", "image"] as const;
+export type ComfyParam = (typeof COMFY_PARAMS)[number];
+/** 工作流里一个节点参数，写成「节点 id.参数名」，例如 "6.text"。 */
+export type ComfyInputRef = string;
+/** 画布保存在工作流旁边的设置：参数映射和要取结果的输出节点。 */
+export type ComfyCanvasSettings = { mapping?: Partial<Record<ComfyParam, ComfyInputRef[]>>; outputNodes?: string[] };
+export type ComfyInputOption = { ref: ComfyInputRef; nodeId: string; input: string; classType: string; title?: string; value: string | number | boolean };
+export type ComfyOutputNode = { nodeId: string; classType: string; title?: string; kind: "image" | "video" | "audio" };
+
+/** 设置和工作流存在一起：{ "prompt": 工作流, "infinite_canvas": 设置 }。 */
+const SETTINGS_KEY = "infinite_canvas";
+/** 每个参数最多映射到几个节点参数；编辑器里同样限制，防止异常数据撑大配置。 */
+export const COMFY_MAX_REFS_PER_PARAM = 16;
+const OUTPUT_CLASS = /^(Save|Preview)|VideoCombine|SaveVideo|SaveWEBM|SaveAnimated|CreateVideo/i;
+const AUDIO_OUTPUT_CLASS = /Audio/i;
+
+function splitRef(ref: string): [string, string] | null {
+    const index = ref.indexOf(".");
+    return index > 0 && index < ref.length - 1 ? [ref.slice(0, index), ref.slice(index + 1)] : null;
+}
+
+function cleanRefs(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return Array.from(new Set(value.filter((ref): ref is string => typeof ref === "string" && Boolean(splitRef(ref))))).slice(0, COMFY_MAX_REFS_PER_PARAM);
+}
+
+/** 读出工作流 JSON 里画布的设置；没有或格式不对时返回空对象。 */
+export function parseComfySettings(text: string): ComfyCanvasSettings {
+    let value: unknown;
+    try {
+        value = JSON.parse(text);
+    } catch {
+        return {};
+    }
+    const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[SETTINGS_KEY] : undefined;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const record = raw as { mapping?: unknown; outputNodes?: unknown };
+    const mapping: Partial<Record<ComfyParam, ComfyInputRef[]>> = {};
+    if (record.mapping && typeof record.mapping === "object" && !Array.isArray(record.mapping)) {
+        for (const param of COMFY_PARAMS) {
+            const refs = cleanRefs((record.mapping as Record<string, unknown>)[param]);
+            if (refs.length) mapping[param] = refs;
+        }
+    }
+    const outputNodes = Array.isArray(record.outputNodes) ? Array.from(new Set(record.outputNodes.filter((id): id is string => typeof id === "string" && Boolean(id)))) : [];
+    return { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}) };
+}
+
+/** 把工作流和设置合成要保存的 JSON；没有设置时只保存工作流本身。 */
+export function serializeComfyWorkflow(workflow: ComfyWorkflow, settings: ComfyCanvasSettings) {
+    const mapping = Object.fromEntries(Object.entries(settings.mapping || {}).filter(([, refs]) => refs?.length));
+    const outputNodes = (settings.outputNodes || []).filter((id) => workflow[id]);
+    const clean = { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}) };
+    return JSON.stringify(Object.keys(clean).length ? { prompt: workflow, [SETTINGS_KEY]: clean } : workflow, null, 2);
+}
+
+/** 列出可以映射的节点参数：只列直接填值的参数，连线的输入不能填。 */
+export function listComfyInputs(workflow: ComfyWorkflow): ComfyInputOption[] {
+    return Object.entries(workflow).flatMap(([nodeId, node]) =>
+        Object.entries(node.inputs || {}).flatMap(([input, value]) =>
+            typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? [{ ref: `${nodeId}.${input}`, nodeId, input, classType: node.class_type || "", title: node._meta?.title, value }] : [],
+        ),
+    );
+}
+
+/** 列出会产出文件的节点，用来选择从哪些节点取结果。 */
+export function listComfyOutputNodes(workflow: ComfyWorkflow): ComfyOutputNode[] {
+    return Object.entries(workflow).flatMap(([nodeId, node]) => {
+        const classType = node.class_type || "";
+        if (!OUTPUT_CLASS.test(classType)) return [];
+        const kind = AUDIO_OUTPUT_CLASS.test(classType) ? ("audio" as const) : VIDEO_OUTPUT_NODE.test(classType) ? ("video" as const) : ("image" as const);
+        return [{ nodeId, classType, title: node._meta?.title, kind }];
+    });
+}
+
+/** 工作流里已经用占位符接管的参数。 */
+export function comfyPlaceholderParams(workflow: ComfyWorkflow): ComfyParam[] {
+    const keys = new Set(Array.from(JSON.stringify(workflow).matchAll(PLACEHOLDER), (match) => match[1]));
+    return COMFY_PARAMS.filter((param) => (param === "count" ? keys.has("count") || keys.has("batch_size") : param === "image" ? [...keys].some((key) => /^image\d*$/.test(key)) : keys.has(param)));
+}
+
+/** 没写占位符也没手动映射时，自动识别出来的节点参数。 */
+export function autoComfyInputs(workflow: ComfyWorkflow): Partial<Record<ComfyParam, ComfyInputRef[]>> {
+    const idOf = (target: ComfyWorkflow[string] | undefined) => Object.keys(workflow).find((id) => workflow[id] === target);
+    const prompt = idOf(positivePromptNode(workflow));
+    const result: Partial<Record<ComfyParam, ComfyInputRef[]>> = { prompt: prompt ? [`${prompt}.text`] : [], width: [], height: [], count: [], seed: [], image: [] };
+    for (const [id, node] of Object.entries(workflow)) {
+        const inputs = node.inputs || {};
+        if (LATENT_CLASS.test(node.class_type || "")) {
+            if (typeof inputs.width === "number") result.width?.push(`${id}.width`);
+            if (typeof inputs.height === "number") result.height?.push(`${id}.height`);
+            if (typeof inputs.batch_size === "number") result.count?.push(`${id}.batch_size`);
+        }
+        if (typeof inputs.seed === "number") result.seed?.push(`${id}.seed`);
+        if (typeof inputs.noise_seed === "number") result.seed?.push(`${id}.noise_seed`);
+        if (node.class_type === "LoadImage" && node.inputs) result.image?.push(`${id}.image`);
+    }
+    return result;
+}
+
+function setInput(workflow: ComfyWorkflow, ref: ComfyInputRef, value: unknown) {
+    const parts = splitRef(ref);
+    const inputs = parts ? workflow[parts[0]]?.inputs : undefined;
+    if (!parts || !inputs || !(parts[1] in inputs) || Array.isArray(inputs[parts[1]])) return;
+    inputs[parts[1]] = value;
+}
+
 /**
- * 把画布的提示词、尺寸、张数、参考图填进工作流。
- * 优先替换 {{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{count}}、{{seed}}、{{image}}、{{image2}}… 占位符；
- * 没写占位符时自动填：正向提示词节点、Empty*Latent* 的宽高和张数、LoadImage 的图片，并为采样器换一个随机种子。
+ * 把画布的提示词、尺寸、张数、参考图填进工作流，优先级：占位符 > 手动映射 > 自动识别。
+ * 占位符：{{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{count}}、{{seed}}、{{seconds}}、{{image}}、{{image2}}…
+ * 自动识别：采样器正向提示词节点、Empty*Latent* 的宽高和张数、LoadImage 的图片，并为采样器换一个随机种子。
+ * 映射到的参数不存在或是连线输入时跳过，不会改动工作流结构。
  */
-export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables): ComfyWorkflow {
-    const values = variableMap({ ...vars, seed: vars.seed ?? Math.floor(Math.random() * MAX_SEED) });
+export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables, settings: ComfyCanvasSettings = {}): ComfyWorkflow {
+    const seed = vars.seed ?? Math.floor(Math.random() * MAX_SEED);
+    const values = variableMap({ ...vars, seed });
     const used = new Set<string>();
     const result = replacePlaceholders(structuredClone(workflow), values, used) as ComfyWorkflow;
-    if (!used.has("prompt")) {
-        const node = positivePromptNode(result);
-        if (node?.inputs) node.inputs.text = vars.prompt;
-    }
-    const nodes = Object.values(result);
-    for (const node of nodes) {
-        const inputs = node.inputs;
-        if (!inputs) continue;
-        if (LATENT_CLASS.test(node.class_type || "")) {
-            if (!used.has("width") && vars.width && typeof inputs.width === "number") inputs.width = vars.width;
-            if (!used.has("height") && vars.height && typeof inputs.height === "number") inputs.height = vars.height;
-            if (!used.has("count") && !used.has("batch_size") && vars.count && typeof inputs.batch_size === "number") inputs.batch_size = vars.count;
+    const placeholders = new Set(COMFY_PARAMS.filter((param) => (param === "count" ? used.has("count") || used.has("batch_size") : param === "image" ? [...used].some((key) => /^image\d*$/.test(key)) : used.has(param))));
+    const auto = autoComfyInputs(result);
+    for (const param of COMFY_PARAMS) {
+        if (placeholders.has(param)) continue;
+        const mapped = settings.mapping?.[param];
+        const manual = Boolean(mapped?.length);
+        const refs = manual ? mapped || [] : auto[param] || [];
+        if (param === "image") {
+            refs.forEach((ref, index) => vars.images?.[index] && setInput(result, ref, vars.images[index]));
+            continue;
         }
-        if (!used.has("seed")) {
-            if (typeof inputs.seed === "number") inputs.seed = Math.floor(Math.random() * MAX_SEED);
-            if (typeof inputs.noise_seed === "number") inputs.noise_seed = Math.floor(Math.random() * MAX_SEED);
+        // 自动识别的种子每个采样器各换一个，手动映射的种子用同一个值。
+        if (param === "seed") {
+            refs.forEach((ref) => setInput(result, ref, manual || vars.seed !== undefined ? seed : Math.floor(Math.random() * MAX_SEED)));
+            continue;
         }
-    }
-    if (![...used].some((key) => key.startsWith("image")) && vars.images?.length) {
-        nodes.filter((node) => node.class_type === "LoadImage" && node.inputs).forEach((node, index) => {
-            const name = vars.images?.[index];
-            if (name && node.inputs) node.inputs.image = name;
-        });
+        const value = { prompt: vars.prompt, width: vars.width, height: vars.height, count: vars.count, seconds: vars.seconds }[param];
+        if (value === undefined || value === "" || (param !== "prompt" && !value)) continue;
+        refs.forEach((ref) => setInput(result, ref, value));
     }
     return result;
 }
@@ -144,7 +251,12 @@ const VIDEO_EXT = /\.(mp4|webm|mov|mkv|gif)$/i;
 const AUDIO_EXT = /\.(mp3|wav|flac|ogg|m4a)$/i;
 
 /** 从 /history 的 outputs 里收集生成的文件；有正式输出时忽略预览用的临时文件。 */
-export function collectComfyOutputs(outputs: Record<string, Record<string, unknown>> = {}): ComfyOutputFile[] {
+export function collectComfyOutputs(outputs: Record<string, Record<string, unknown>> = {}, outputNodes: string[] = []): ComfyOutputFile[] {
+    // 选了输出节点时只取这些节点的结果；它们都没产出时退回全部输出，避免节点改名后直接失败。
+    if (outputNodes.length) {
+        const chosen = collectComfyOutputs(Object.fromEntries(Object.entries(outputs).filter(([id]) => outputNodes.includes(id))));
+        if (chosen.length) return chosen;
+    }
     const files: ComfyOutputFile[] = [];
     for (const output of Object.values(outputs)) {
         for (const [key, list] of Object.entries(output || {})) {
@@ -211,7 +323,7 @@ export async function uploadComfyImage(config: Pick<AiConfig, "baseUrl" | "apiKe
 }
 
 /** 提交工作流并等待完成，返回生成的文件列表；取消节点生成会中止等待。 */
-export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, options?: RequestOptions) {
+export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, options?: RequestOptions & { outputNodes?: string[] }) {
     const queued = await comfyFetch<{ prompt_id?: string; error?: unknown; node_errors?: Record<string, unknown> }>(config, "/prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -231,7 +343,7 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
                 throw new Error(failure ? `${failure.node_type || "ComfyUI"}: ${failure.exception_message || ""}`.trim() : apiText("requestFailed"));
             }
             if (entry.status?.completed === false) continue;
-            const files = collectComfyOutputs(entry.outputs);
+            const files = collectComfyOutputs(entry.outputs, options?.outputNodes);
             if (!files.length) throw new Error(apiText("comfyNoOutput"));
             return files;
         }
@@ -263,8 +375,9 @@ async function comfyImageFile(config: Pick<AiConfig, "baseUrl" | "apiKey">, file
 /** 用工作流生成图片，返回 data URL 列表。 */
 export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
     const workflow = parseComfyWorkflow(workflowText);
+    const settings = parseComfySettings(workflowText);
     const images = await Promise.all((vars.references || []).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
-    const files = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }), options)).filter((file) => file.kind === "image");
+    const files = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).filter((file) => file.kind === "image");
     if (!files.length) throw new Error(apiText("comfyNoOutput"));
     return Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options))));
 }
@@ -272,8 +385,9 @@ export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "ap
 /** 用工作流生成视频，返回第一个视频文件。 */
 export async function generateComfyVideo(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
     const workflow = parseComfyWorkflow(workflowText);
+    const settings = parseComfySettings(workflowText);
     const images = await Promise.all((vars.references || []).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
-    const file = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }), options)).find((item) => item.kind === "video");
+    const file = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).find((item) => item.kind === "video");
     if (!file) throw new Error(apiText("comfyNoOutput"));
     return fetchComfyFile(config, file, options);
 }
