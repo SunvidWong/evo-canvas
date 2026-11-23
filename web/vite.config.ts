@@ -38,8 +38,25 @@ function localPluginsManifest(): Plugin {
     };
 }
 
+/** 开发时可选：设置 COMFYUI_URL（例如 http://10.10.20.10:8188）后，/comfyui 同源转发到 ComfyUI，和 Docker 镜像行为一致。 */
+function comfyProxy() {
+    const target = process.env.COMFYUI_URL?.trim().replace(/\/+$/, "");
+    if (!target || !/^https?:\/\//i.test(target)) return undefined;
+    return {
+        "/comfyui": {
+            target,
+            changeOrigin: true,
+            ws: true,
+            rewrite: (path: string) => path.replace(/^\/comfyui/, "") || "/",
+            // ComfyUI 会拒绝 Origin 与自身地址不一致的请求。
+            configure: (proxy: { on: (event: "proxyReq", handler: (request: { removeHeader: (name: string) => void }) => void) => void }) => proxy.on("proxyReq", (request) => request.removeHeader("origin")),
+        },
+    };
+}
+
 export default defineConfig({
     base: process.env.VITE_BASE || "/",
+    server: { proxy: comfyProxy() },
     plugins: [react(), localPluginsManifest()],
     resolve: {
         alias: {
