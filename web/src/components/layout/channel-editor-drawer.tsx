@@ -119,6 +119,8 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
 
     /** 释放显存或清空本站排队任务；做完后如果已经测过连接，重新测一次刷新显存和队列数。 */
     const runComfyAction = async (action: "free" | "clear") => {
+        // 地址、Key 改了或换了渠道会让 testRun 变化；这时不再用旧配置重测，免得旧服务器的结果显示在新渠道下。
+        const run = testRun.current;
         setComfyAction(action);
         try {
             if (action === "free") {
@@ -128,7 +130,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                 const count = await clearOwnComfyQueue(draft);
                 message.success(count ? t("config.channelEditor.clearQueueDone", { count }) : t("config.channelEditor.clearQueueEmpty"));
             }
-            if (testResult?.ok) void runTest();
+            if (testResult?.ok && run === testRun.current) void runTest();
         } catch (error) {
             message.error(t("config.channelEditor.comfyActionFailed", { message: error instanceof Error ? error.message : String(error) }));
         } finally {
