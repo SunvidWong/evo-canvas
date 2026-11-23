@@ -261,9 +261,16 @@ export async function cleanupUnusedImages(usedData: unknown) {
     await Promise.all([deleteStoredImages(unused), ...orphanPreviews.map(deleteImagePreview)]);
 }
 
+/** 只靠字符串记在节点元数据里的图片（生成时的参考图、局部重绘蒙版），没有独立节点也要保留，重试和再生成要用。 */
+const METADATA_IMAGE_REF_FIELDS = ["references", "inpaintMask"] as const;
+
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>()) {
     if (!value || typeof value !== "object") return keys;
     if ("storageKey" in value && typeof value.storageKey === "string" && value.storageKey.startsWith("image:")) keys.add(value.storageKey);
+    for (const field of METADATA_IMAGE_REF_FIELDS) {
+        const refs = (value as Record<string, unknown>)[field];
+        for (const ref of Array.isArray(refs) ? refs : [refs]) if (typeof ref === "string" && ref.startsWith("image:")) keys.add(ref);
+    }
     Object.values(value).forEach((item) => (Array.isArray(item) ? item.forEach((child) => collectImageStorageKeys(child, keys)) : collectImageStorageKeys(item, keys)));
     return keys;
 }
