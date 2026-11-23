@@ -22,6 +22,7 @@ const {
     autoComfyInputs,
     comfyErrorMessage,
     comfyExecutionErrorMessage,
+    comfyImageSlots,
     comfyQueuePosition,
     comfySocketUrl,
     generateComfyVideo,
@@ -395,6 +396,42 @@ describe("ComfyUI 工作流", () => {
         expect(toComfyApiWorkflow({ nodes: [{ id: 9, type: "SaveImage", widgets_values: ["out"] }], links: [] }, info)).toEqual({ "9": { class_type: "SaveImage", inputs: { filename_prefix: "out" }, _meta: { title: "SaveImage" } } });
         expect(() => toComfyApiWorkflow({ nodes: [{ id: 1, type: "Missing" }], links: [] }, info)).toThrow("Missing");
         expect(() => toComfyApiWorkflow({ nodes: [], links: [], definitions: { subgraphs: [{}] } }, info)).toThrow("子图");
+    });
+
+    test("按占位符、映射或 LoadImage 计算能接收几张参考图", () => {
+        expect(comfyImageSlots(workflow)).toBe(1);
+        expect(comfyImageSlots(workflow, { mapping: { image: ["10.image", "6.text"] } })).toBe(2);
+        expect(comfyImageSlots({ "1": { class_type: "X", inputs: { a: "{{image}}", b: "{{image3}}" } } })).toBe(3);
+        expect(comfyImageSlots({ "1": { class_type: "KSampler", inputs: {} } })).toBe(0);
+    });
+
+    test("参考图上传到 infinite-canvas 子目录，只上传工作流用得上的张数", async () => {
+        const originalFetch = globalThis.fetch;
+        const uploads: FormData[] = [];
+        let submitted: Record<string, { inputs: Record<string, unknown> }> = {};
+        globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (url.endsWith("/upload/image")) {
+                uploads.push(init?.body as FormData);
+                return new Response(JSON.stringify({ name: `ref${uploads.length}.png`, subfolder: "infinite-canvas", type: "input" }));
+            }
+            if (url.endsWith("/prompt")) {
+                submitted = JSON.parse(String(init?.body)).prompt;
+                return new Response(JSON.stringify({ prompt_id: "p2" }));
+            }
+            if (url.includes("/history/p2")) return new Response(JSON.stringify({ p2: { status: { status_str: "success", completed: true }, outputs: { "12": { gifs: [{ filename: "v.mp4", type: "output" }] } } } }));
+            if (url.includes("/view")) return new Response(new Blob(["v"], { type: "video/mp4" }));
+            return new Response("{}");
+        }) as typeof fetch;
+        const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        try {
+            await generateComfyVideo({ baseUrl: "http://comfy.local", apiKey: "" }, JSON.stringify({ ...workflow, "12": { class_type: "VHS_VideoCombine", inputs: {} } }), { prompt: "x", references: [png, png, png] });
+            expect(uploads).toHaveLength(1);
+            expect(uploads[0].get("subfolder")).toBe("infinite-canvas");
+            expect(submitted["10"].inputs.image).toBe("infinite-canvas/ref1.png");
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 
     test("只接受 API 格式工作流", () => {
