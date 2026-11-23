@@ -2620,6 +2620,7 @@ function InfiniteCanvasPage() {
                             watermark: generationConfig.videoWatermark,
                             videoMode: generationConfig.videoMode,
                             references: generationReferenceUrls(generationContext),
+                            ...comfyOverrideMetadata(generationConfig),
                         },
                     };
                     pendingChildIds = [videoId];
@@ -2900,6 +2901,7 @@ function InfiniteCanvasPage() {
                         generateAudio: generationConfig.videoGenerateAudio,
                         watermark: generationConfig.videoWatermark,
                         videoMode: generationConfig.videoMode,
+                        ...comfyOverrideMetadata(generationConfig),
                     }, context?.referenceVideos || [], context?.referenceAudios || []);
                     return;
                 }

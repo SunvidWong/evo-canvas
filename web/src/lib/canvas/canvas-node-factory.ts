@@ -65,6 +65,7 @@ export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetada
         audioFormat: config.audioFormat,
         audioSpeed: config.audioSpeed,
         audioInstructions: config.audioInstructions,
+        ...comfyOverrideMetadata(config),
     };
 }
 
