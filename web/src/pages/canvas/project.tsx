@@ -861,7 +861,12 @@ function InfiniteCanvasPage() {
                           count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                       }
                     : undefined;
-            const newNode = createCanvasNode(type, targetPosition, configMetadata);
+            const created = createCanvasNode(type, targetPosition, configMetadata);
+            // 从工具栏添加（没指定位置）时放在画布中央；中央已有节点就往下错开，再把画布平移过去，新节点仍在视野中央。
+            const placed = position ? created.position : placeNewNode(created.position, created.width, created.height);
+            const newNode = { ...created, position: placed };
+            const shiftY = placed.y - created.position.y;
+            if (shiftY) setViewport((current) => ({ ...current, y: current.y - shiftY * current.k }));
 
             setNodes((prev) => [...prev, newNode]);
             setSelectedNodeIds(new Set([newNode.id]));
