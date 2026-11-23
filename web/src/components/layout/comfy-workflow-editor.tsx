@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import {
     autoComfyInputs,
     comfyInputChoices,
+    comfyWorkflowFromPng,
+    isPngBytes,
     COMFY_MAX_REFS_PER_PARAM,
     COMFY_PARAMS,
     comfyPlaceholderParams,
@@ -272,8 +274,19 @@ export function ComfyWorkflowEditor({
 
     const importFile = async (file: File | undefined) => {
         if (!file) return;
-        const stored = splitStoredWorkflow(await file.text());
-        setDraft((current) => ({ ...current, workflow: stored.workflow, name: current.name || file.name.replace(/\.json$/i, "") }));
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let text: string;
+        if (isPngBytes(bytes)) {
+            // ComfyUI 生成的图片里带着工作流：优先用 API 格式，只有普通格式时走下面的转换。
+            const fromPng = await comfyWorkflowFromPng(bytes);
+            if (!fromPng) {
+                setError(t("config.comfyWorkflow.pngNoWorkflow"));
+                return;
+            }
+            text = fromPng.text;
+        } else text = new TextDecoder().decode(bytes);
+        const stored = splitStoredWorkflow(text);
+        setDraft((current) => ({ ...current, workflow: stored.workflow, name: current.name || file.name.replace(/\.(json|png)$/i, "") }));
         setSettings(stored.settings);
         setError("");
         // 普通保存格式的文件直接转换；连不上 ComfyUI 时保留原文，提示里可以再点转换。
@@ -327,7 +340,7 @@ export function ComfyWorkflowEditor({
                         <input
                             ref={fileRef}
                             type="file"
-                            accept=".json,application/json"
+                            accept=".json,application/json,.png,image/png"
                             className="hidden"
                             onChange={(event) => {
                                 void importFile(event.target.files?.[0]);

@@ -574,7 +574,7 @@ export default {
             uiFormatNoChannel: "This is ComfyUI's regular save format. Fill in the provider address to convert it, or use Export (API) in ComfyUI.",
             convert: "Convert to API format",
             convertNeedsChannel: "Fill in the ComfyUI address first",
-            importHistory: "Import from recent runs",
+            importHistory: "Import from recent runs", pngNoWorkflow: "This image has no ComfyUI workflow. Only original images saved by ComfyUI carry one; compressed or re-shared images usually lose it.",
             historyTitle: "Workflows ComfyUI ran recently (click one to use it)",
             historyEmpty: "ComfyUI has no runs yet. Run this workflow in ComfyUI once first.",
             historyUnnamed: "Unknown model",

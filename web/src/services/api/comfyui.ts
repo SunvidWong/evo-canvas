@@ -972,3 +972,71 @@ export function comfyCopyName(name: string, existing: string[], suffix: string):
 export function comfyWorkflowFileName(name: string): string {
     return `${name.replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"}.json`;
 }
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+export function isPngBytes(bytes: Uint8Array) {
+    return bytes.length >= 8 && PNG_SIGNATURE.every((value, index) => bytes[index] === value);
+}
+
+async function inflate(data: Uint8Array<ArrayBuffer>) {
+    const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * 读出 PNG 里的文字块（tEXt、iTXt、zTXt），按关键字返回。ComfyUI 保存图片时把 API 格式工作流写在 prompt、普通格式写在 workflow 里；
+ * 文字能用 Latin-1 表示时写 tEXt，否则写 iTXt。不是 PNG 时返回空对象；单个块解不开就跳过。
+ */
+export async function readPngTextChunks(bytes: Uint8Array<ArrayBuffer>): Promise<Record<string, string>> {
+    const result: Record<string, string> = {};
+    if (!isPngBytes(bytes)) return result;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const latin1 = new TextDecoder("latin1");
+    const utf8 = new TextDecoder();
+    for (let offset = 8; offset + 12 <= bytes.length; ) {
+        const length = view.getUint32(offset);
+        const type = latin1.decode(bytes.subarray(offset + 4, offset + 8));
+        const start = offset + 8;
+        const end = start + length;
+        if (end + 4 > bytes.length) break;
+        offset = end + 4;
+        if (type === "IEND") break;
+        if (type !== "tEXt" && type !== "iTXt" && type !== "zTXt") continue;
+        const data = bytes.subarray(start, end);
+        const keywordEnd = data.indexOf(0);
+        if (keywordEnd <= 0) continue;
+        const keyword = latin1.decode(data.subarray(0, keywordEnd));
+        try {
+            if (type === "tEXt") result[keyword] = latin1.decode(data.subarray(keywordEnd + 1));
+            else if (type === "zTXt") result[keyword] = latin1.decode(await inflate(data.slice(keywordEnd + 2)));
+            else {
+                const compressed = data[keywordEnd + 1] === 1;
+                const languageEnd = data.indexOf(0, keywordEnd + 3);
+                const translatedEnd = languageEnd < 0 ? -1 : data.indexOf(0, languageEnd + 1);
+                if (translatedEnd < 0) continue;
+                const text = data.slice(translatedEnd + 1);
+                result[keyword] = utf8.decode(compressed ? await inflate(text) : text);
+            }
+        } catch {
+            // 这个块损坏或压缩格式不认识，跳过。
+        }
+    }
+    return result;
+}
+
+/** 从 ComfyUI 生成的 PNG 里取工作流：优先 API 格式的 prompt，没有时退回普通格式的 workflow。 */
+export async function comfyWorkflowFromPng(bytes: Uint8Array<ArrayBuffer>): Promise<{ format: "api" | "ui"; text: string } | undefined> {
+    const chunks = await readPngTextChunks(bytes);
+    for (const [key, format] of [["prompt", "api"], ["workflow", "ui"]] as const) {
+        const text = chunks[key]?.trim();
+        if (!text) continue;
+        try {
+            const value = JSON.parse(text);
+            if (value && typeof value === "object" && !Array.isArray(value)) return { format, text: JSON.stringify(value, null, 2) };
+        } catch {
+            // 不是 JSON，看下一个。
+        }
+    }
+    return undefined;
+}
