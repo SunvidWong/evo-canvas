@@ -6,7 +6,7 @@ import { Group, Video } from "lucide-react";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
-import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
+import { generatedImageSeed, requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { comfySeedForImage } from "@/services/api/comfyui";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
@@ -2537,7 +2537,8 @@ function InfiniteCanvasPage() {
                                     .finally(imageRequest.release);
                                 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
-                                const item: CanvasNodeImage = { id: imageId, status: NODE_STATUS_SUCCESS, content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType };
+                                const seed = generatedImageSeed(image);
+                                const item: CanvasNodeImage = { id: imageId, status: NODE_STATUS_SUCCESS, content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType, ...(seed === undefined ? {} : { seed }) };
                                 setNodes((prev) =>
                                     prev.map((node) => {
                                         if (node.id !== rootId) return node;
@@ -2923,6 +2924,7 @@ function InfiniteCanvasPage() {
                     naturalHeight: uploadedImage.height,
                     bytes: uploadedImage.bytes,
                     mimeType: uploadedImage.mimeType,
+                    ...(generatedImageSeed(image) === undefined ? {} : { seed: generatedImageSeed(image) }),
                 };
                 const generationMetadata = savedImageMetadata?.generationType
                     ? {
@@ -3486,7 +3488,15 @@ function InfiniteCanvasPage() {
 
                 <input ref={imageInputRef} type="file" multiple accept="image/*,video/*,audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" className="hidden" onChange={handleImageInputChange} />
 
-                <CanvasNodeInfoModal node={infoNode} open={Boolean(infoNode)} onClose={() => setInfoNodeId(null)} />
+                <CanvasNodeInfoModal
+                    node={infoNode}
+                    open={Boolean(infoNode)}
+                    onClose={() => setInfoNodeId(null)}
+                    onUseSeed={(node, seed) => {
+                        handleConfigNodeChange(node.id, { comfySeed: String(seed) });
+                        message.success(t("canvas.nodeToolbar.seedApplied", { seed }));
+                    }}
+                />
                 <CanvasPluginManagerModal open={pluginManagerOpen} onClose={() => setPluginManagerOpen(false)} />
 
                 {cropNode?.metadata?.content ? <CanvasNodeCropDialog dataUrl={cropNode.metadata.content} open={Boolean(cropNode)} onClose={() => setCropNodeId(null)} onConfirm={(crop) => void cropImageNode(cropNode!, crop)} /> : null}

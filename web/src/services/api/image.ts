@@ -99,6 +99,13 @@ type GeminiPayload = {
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
 /** inpaint：局部重绘时给 ComfyUI 用的纯蒙版和用户原话；其他协议忽略，仍按原图加标注图编辑。 */
+/** 生成结果；ComfyUI 出的图带上这次实际用的种子。 */
+export type GeneratedImageResult = { id: string; dataUrl: string; seed?: number };
+/** 取出生成结果里的种子；其他协议的结果没有这个字段。 */
+export function generatedImageSeed(image: object) {
+    return "seed" in image && typeof image.seed === "number" ? image.seed : undefined;
+}
+
 type RequestOptions = { signal?: AbortSignal; inpaint?: { mask: string; prompt: string } };
 
 const IMAGE_QUALITY_VALUES = ["low", "medium", "high", "xhigh", "max"];
@@ -339,8 +346,8 @@ async function requestProtocolImages(config: AiConfig, requestConfig: AiConfig, 
         // 局部重绘只传原图（第一张）和蒙版，不传蓝色标注图，提示词用用户原话。
         const inpaint = options?.inpaint && references.length ? options.inpaint : undefined;
         const refs = await Promise.all((inpaint ? references.slice(0, 1) : references).map((image) => imageToDataUrl(image)));
-        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, inpaint ? inpaint.prompt : prompt), width, height, count, references: refs, mask: inpaint?.mask, ...parseComfyOverrides(config) }, { signal: options?.signal });
-        return images.map((dataUrl) => ({ id: nanoid(), dataUrl }));
+        const { images, seed } = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, inpaint ? inpaint.prompt : prompt), width, height, count, references: refs, mask: inpaint?.mask, ...parseComfyOverrides(config) }, { signal: options?.signal });
+        return images.map((dataUrl): GeneratedImageResult => ({ id: nanoid(), dataUrl, ...(seed === undefined ? {} : { seed }) }));
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));
     }

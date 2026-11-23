@@ -4,7 +4,7 @@ import type { ComfyWorkflow } from "../src/services/api/comfyui";
 
 // comfyui.ts 会加载 i18n，它在初始化时读 localStorage。
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined } });
-const { buildComfyWorkflow, comfySeedForImage, parseComfyOverrides } = await import("../src/services/api/comfyui");
+const { buildComfyWorkflow, comfySeedForImage, comfyWorkflowSeed, parseComfyOverrides } = await import("../src/services/api/comfyui");
 
 const workflow: ComfyWorkflow = {
     "3": { class_type: "KSampler", inputs: { seed: 1, steps: 20, cfg: 7, positive: ["6", 0] } },
@@ -20,7 +20,8 @@ test("parses only valid overrides", () => {
     expect(parseComfyOverrides({ comfySteps: "", comfyCfg: " ", comfySeed: undefined })).toEqual({});
     expect(parseComfyOverrides({ comfySteps: "0", comfyCfg: "101", comfySeed: "1.5" })).toEqual({});
     expect(parseComfyOverrides({ comfySteps: "8.5", comfySeed: "-1" })).toEqual({});
-    expect(parseComfyOverrides({ comfySeed: String(2 ** 32) })).toEqual({});
+    expect(parseComfyOverrides({ comfySeed: "156680208700286" })).toEqual({ seed: 156680208700286 });
+    expect(parseComfyOverrides({ comfySeed: String(Number.MAX_SAFE_INTEGER + 2) })).toEqual({});
 });
 
 test("overrides sampler steps and cfg but leaves links and upscalers alone", () => {
@@ -43,7 +44,23 @@ test("a fixed seed is used as is", () => {
 test("each extra image in a batch gets the next seed", () => {
     expect(comfySeedForImage("42", 0)).toBe("42");
     expect(comfySeedForImage("42", 2)).toBe("44");
-    expect(comfySeedForImage(String(2 ** 32 - 1), 1)).toBe("0");
+    expect(comfySeedForImage(String(2 ** 32 - 1), 1)).toBe(String(2 ** 32));
+    expect(comfySeedForImage(String(Number.MAX_SAFE_INTEGER), 1)).toBe("0");
     expect(comfySeedForImage(undefined, 3)).toBeUndefined();
     expect(comfySeedForImage("abc", 1)).toBe("abc");
+});
+
+test("reads back the seed that was actually submitted", () => {
+    const built = buildComfyWorkflow(workflow, { prompt: "dog" });
+    const seed = comfyWorkflowSeed(built);
+    expect(seed).toBe(built["3"].inputs?.seed as number);
+    expect(comfyWorkflowSeed(buildComfyWorkflow(workflow, { prompt: "dog", seed: 7 }))).toBe(7);
+    // 手动映射优先；节点 10 是放大器，自动识别会跳过它。
+    expect(comfyWorkflowSeed(built, { mapping: { seed: ["10.seed"] } })).toBe(5);
+    expect(comfyWorkflowSeed({ "1": { class_type: "SaveImage", inputs: {} } })).toBeUndefined();
+    // 两个采样器种子不同：填一个值回去复现不了，不记录。
+    const twoSamplers: ComfyWorkflow = { "1": { class_type: "KSampler", inputs: { seed: 3 } }, "2": { class_type: "KSampler", inputs: { seed: 4 } } };
+    expect(comfyWorkflowSeed(twoSamplers)).toBeUndefined();
+    expect(comfyWorkflowSeed({ ...twoSamplers, "2": { class_type: "KSampler", inputs: { seed: 3 } } })).toBe(3);
+    expect(comfyWorkflowSeed({ "1": { class_type: "KSampler", inputs: { seed: 156680208700286 } } })).toBe(156680208700286);
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { App, Modal, Segmented, Tooltip } from "antd";
+import { App, Button, Modal, Segmented, Tooltip } from "antd";
 import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare, Minus, Music2, Plus, RefreshCw, Settings2, Trash2, Ungroup, Upload, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -216,12 +216,15 @@ export function CanvasNodeHoverToolbar({
     );
 }
 
-export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeData | null; open: boolean; onClose: () => void }) {
+export function CanvasNodeInfoModal({ node, open, onClose, onUseSeed }: { node: CanvasNodeData | null; open: boolean; onClose: () => void; onUseSeed?: (node: CanvasNodeData, seed: number) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
     const [view, setView] = useState<"info" | "json">("info");
     const imageBytes = node?.type === CanvasNodeType.Image && node.metadata?.content ? getDataUrlByteSize(node.metadata.content) : 0;
     const batchCount = node?.type === CanvasNodeType.Image ? node.metadata?.images?.length || 0 : 0;
+    // 当前主图的种子（ComfyUI 生成时记录）。
+    const primaryImage = node?.type === CanvasNodeType.Image ? node.metadata?.images?.find((image) => image.id === node.metadata?.primaryImageId) || node.metadata?.images?.[0] : undefined;
+    const seed = primaryImage?.seed;
     const json = useMemo(() => {
         if (!node) return "";
         return JSON.stringify(
@@ -269,6 +272,21 @@ export function CanvasNodeInfoModal({ node, open, onClose }: { node: CanvasNodeD
                             <InfoRow label={t("canvas.nodeToolbar.status")} value={node.metadata?.status || "idle"} />
                             {batchCount > 1 ? <InfoRow label={t("canvas.nodeToolbar.imageGroup")} value={t("canvas.configNode.images", { count: batchCount })} /> : null}
                             {node.metadata?.prompt ? <InfoRow label={t("canvas.configNode.prompt")} value={node.metadata.prompt} /> : null}
+                            {node && seed !== undefined ? (
+                                <InfoRow
+                                    label={t("canvas.nodeToolbar.seed")}
+                                    value={
+                                        <span className="inline-flex flex-wrap items-center gap-2" data-testid="node-info-seed">
+                                            <span>{seed}</span>
+                                            {onUseSeed ? (
+                                                <Button size="small" data-testid="node-info-use-seed" disabled={node.metadata?.comfySeed === String(seed)} onClick={() => onUseSeed(node, seed)}>
+                                                    {node.metadata?.comfySeed === String(seed) ? t("canvas.nodeToolbar.seedInUse") : t("canvas.nodeToolbar.useSeed")}
+                                                </Button>
+                                            ) : null}
+                                        </span>
+                                    }
+                                />
+                            ) : null}
                             {node.metadata?.videoTaskId ? <InfoRow label={t("canvas.nodeToolbar.videoTaskId")} value={node.metadata.videoTaskId} /> : null}
                             {imageBytes ? <InfoRow label={t("canvas.nodeToolbar.imageSize")} value={formatBytes(imageBytes)} /> : null}
                             {node.metadata?.errorDetails ? (

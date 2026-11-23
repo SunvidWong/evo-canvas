@@ -35,6 +35,8 @@ export type CanvasNodeImage = {
     naturalHeight: number;
     bytes: number;
     mimeType: string;
+    /** ComfyUI 生成时实际用的种子，用于复现。 */
+    seed?: number;
 };
 
 export type CanvasNodeText = {
