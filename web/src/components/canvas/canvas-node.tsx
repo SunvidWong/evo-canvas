@@ -1,4 +1,4 @@
-import { getComfyNodeProgress, useComfyNodeProgress } from "@/lib/comfy-progress";
+import { getComfyNodeProgress, useComfyNodePreview, useComfyNodeProgress } from "@/lib/comfy-progress";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
@@ -503,12 +503,20 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
 function LoadingContent({ theme, nodeId }: Pick<NodeContentRendererProps, "theme"> & { nodeId?: string }) {
     const { t } = useTranslation();
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
-            <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
-            <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
+        <div className="relative flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
+            <ComfyPreviewImage nodeId={nodeId} />
+            <div className="relative size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
+            <span className="relative text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
             <ComfyProgressLine nodeId={nodeId} theme={theme} />
         </div>
     );
+}
+
+/** ComfyUI 采样过程中的实时预览图，铺在生成中的占位底下；没有预览帧时不显示。 */
+function ComfyPreviewImage({ nodeId, imageId }: { nodeId?: string; imageId?: string }) {
+    const preview = useComfyNodePreview(imageId, nodeId);
+    if (!preview) return null;
+    return <img src={preview} alt="" draggable={false} data-testid="comfy-preview" className="pointer-events-none absolute inset-0 size-full object-contain opacity-80" />;
 }
 
 /** ComfyUI 任务的排队位置或执行进度；其他协议没有进度时不显示。 */
@@ -527,7 +535,7 @@ function ComfyProgressLine({ nodeId, imageId, theme }: { nodeId?: string; imageI
                 ? t("canvas.node.comfyRunningNode", { node: progress.node })
                 : t("canvas.node.comfyRunning");
     return (
-        <div className="flex w-[70%] max-w-[220px] flex-col items-center gap-1.5" data-testid="comfy-progress">
+        <div className="relative flex w-[70%] max-w-[220px] flex-col items-center gap-1.5" data-testid="comfy-progress">
             <span className="max-w-full truncate text-[11px]" style={{ color: theme.node.muted }}>
                 {text}
             </span>
@@ -991,9 +999,10 @@ function ImageSlotStatus({ image, nodeId }: { image?: CanvasNodeImage; nodeId?: 
     const { t } = useTranslation();
     const failed = image?.status === "error";
     return (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
-            {failed ? <span className="whitespace-pre-line text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
-            {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
+        <div className="relative flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
+            {!failed ? <ComfyPreviewImage nodeId={nodeId} imageId={image?.id} /> : null}
+            {failed ? <span className="whitespace-pre-line text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="relative size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
+            {!failed ? <span className="relative text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
             {!failed ? <ComfyProgressLine nodeId={nodeId} imageId={image?.id} theme={theme} /> : null}
         </div>
     );

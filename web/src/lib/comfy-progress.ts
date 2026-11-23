@@ -9,6 +9,8 @@ export type ComfyProgress = { phase: "queued"; position: number } | { phase: "ru
  */
 const progressBySignal = new Map<AbortSignal, Map<string, ComfyProgress>>();
 const keysBySignal = new Map<AbortSignal, Set<string>>();
+/** 每个工作流最新一帧预览图的 object URL；被新帧替换或任务结束时释放。 */
+const previewBySignal = new Map<AbortSignal, Map<string, string>>();
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -27,12 +29,37 @@ export function setComfyProgress(signal: AbortSignal | undefined, runId: string,
     emit();
 }
 
+/** 记下这次工作流的最新预览图；只在浏览器里有 object URL 时生效。 */
+export function setComfyPreview(signal: AbortSignal | undefined, runId: string, image: Blob) {
+    if (!signal || signal.aborted || typeof URL.createObjectURL !== "function") return;
+    const previews = previewBySignal.get(signal) || new Map<string, string>();
+    const previous = previews.get(runId);
+    // 先删再放，让 Map 的顺序代表收到帧的先后。
+    previews.delete(runId);
+    previews.set(runId, URL.createObjectURL(image));
+    previewBySignal.set(signal, previews);
+    if (previous) URL.revokeObjectURL(previous);
+    emit();
+}
+
+function dropPreviews(signal: AbortSignal, runId?: string) {
+    const previews = previewBySignal.get(signal);
+    if (!previews) return false;
+    const urls = runId === undefined ? [...previews.values()] : [previews.get(runId)].filter((url): url is string => Boolean(url));
+    if (runId === undefined) previews.clear();
+    else previews.delete(runId);
+    if (!previews.size) previewBySignal.delete(signal);
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    return urls.length > 0;
+}
+
 /** 只清掉这一次工作流的进度，同一个 signal 下其他还在跑的工作流不受影响。 */
 export function clearComfyProgress(signal: AbortSignal | undefined, runId: string) {
-    const runs = signal ? progressBySignal.get(signal) : undefined;
-    if (!signal || !runs?.delete(runId)) return;
-    if (!runs.size) progressBySignal.delete(signal);
-    emit();
+    if (!signal) return;
+    const runs = progressBySignal.get(signal);
+    const hadProgress = Boolean(runs?.delete(runId));
+    if (runs && !runs.size) progressBySignal.delete(signal);
+    if (dropPreviews(signal, runId) || hadProgress) emit();
 }
 
 /** 把一次生成请求绑到画布节点（或图片）上；请求结束或取消时解绑。 */
@@ -45,7 +72,8 @@ export function bindComfyProgressNode(signal: AbortSignal, key: string) {
 
 export function unbindComfyProgress(signal: AbortSignal) {
     const had = keysBySignal.delete(signal);
-    if (progressBySignal.delete(signal) || had) emit();
+    const hadPreview = dropPreviews(signal);
+    if (progressBySignal.delete(signal) || had || hadPreview) emit();
 }
 
 /** 为批量生成里的单张图派生一个 signal：跟随父 signal 取消，进度单独记在这张图上。用完调用 release。 */
@@ -78,6 +106,17 @@ export function getComfyNodeProgress(key: string | undefined): ComfyProgress | u
     return best;
 }
 
+/** 绑在 key 上的最新预览图；同一个 key 下有多张在跑时取最后收到帧的那一张。 */
+export function getComfyNodePreview(key: string | undefined): string | undefined {
+    if (!key) return undefined;
+    let latest: string | undefined;
+    for (const [signal, keys] of keysBySignal) {
+        if (!keys.has(key)) continue;
+        for (const url of previewBySignal.get(signal)?.values() || []) latest = url;
+    }
+    return latest;
+}
+
 function subscribe(listener: () => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -89,6 +128,16 @@ export function useComfyNodeProgress(...keys: Array<string | undefined>) {
     for (const key of keys) {
         const progress = getComfyNodeProgress(key);
         if (progress) return progress;
+    }
+    return undefined;
+}
+
+/** 读取绑在节点（或图片）上的最新预览图；按顺序取第一个有预览的 key。 */
+export function useComfyNodePreview(...keys: Array<string | undefined>) {
+    useSyncExternalStore(subscribe, () => version);
+    for (const key of keys) {
+        const preview = getComfyNodePreview(key);
+        if (preview) return preview;
     }
     return undefined;
 }
