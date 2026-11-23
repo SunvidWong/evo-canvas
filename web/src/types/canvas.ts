@@ -72,6 +72,9 @@ export type CanvasNodeMetadata = {
     audioSpeed?: string;
     audioInstructions?: string;
     references?: string[];
+    /** 局部重绘的纯蒙版（存储键或 URL）和用户原话，重试时用来重新走 ComfyUI /upload/mask。 */
+    inpaintMask?: string;
+    inpaintPrompt?: string;
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;
