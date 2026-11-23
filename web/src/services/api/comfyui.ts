@@ -115,7 +115,8 @@ export type ComfyParam = (typeof COMFY_PARAMS)[number];
 /** 工作流里一个节点参数，写成「节点 id.参数名」，例如 "6.text"。 */
 export type ComfyInputRef = string;
 /** 画布保存在工作流旁边的设置：参数映射和要取结果的输出节点。 */
-export type ComfyCanvasSettings = { mapping?: Partial<Record<ComfyParam, ComfyInputRef[]>>; outputNodes?: string[] };
+/** seedMode：random（默认）每次换种子；fixed 保留工作流里写的种子，方便复现同一张图。 */
+export type ComfyCanvasSettings = { mapping?: Partial<Record<ComfyParam, ComfyInputRef[]>>; outputNodes?: string[]; seedMode?: "random" | "fixed" };
 export type ComfyInputOption = { ref: ComfyInputRef; nodeId: string; input: string; classType: string; title?: string; value: string | number | boolean };
 export type ComfyOutputNode = { nodeId: string; classType: string; title?: string; kind: "image" | "video" | "audio" };
 
@@ -146,7 +147,7 @@ export function parseComfySettings(text: string): ComfyCanvasSettings {
     }
     const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[SETTINGS_KEY] : undefined;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-    const record = raw as { mapping?: unknown; outputNodes?: unknown };
+    const record = raw as { mapping?: unknown; outputNodes?: unknown; seedMode?: unknown };
     const mapping: Partial<Record<ComfyParam, ComfyInputRef[]>> = {};
     if (record.mapping && typeof record.mapping === "object" && !Array.isArray(record.mapping)) {
         for (const param of COMFY_PARAMS) {
@@ -155,14 +156,14 @@ export function parseComfySettings(text: string): ComfyCanvasSettings {
         }
     }
     const outputNodes = Array.isArray(record.outputNodes) ? Array.from(new Set(record.outputNodes.filter((id): id is string => typeof id === "string" && Boolean(id)))) : [];
-    return { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}) };
+    return { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}), ...(record.seedMode === "fixed" ? { seedMode: "fixed" as const } : {}) };
 }
 
 /** 把工作流和设置合成要保存的 JSON；没有设置时只保存工作流本身。 */
 export function serializeComfyWorkflow(workflow: ComfyWorkflow, settings: ComfyCanvasSettings) {
     const mapping = Object.fromEntries(Object.entries(settings.mapping || {}).filter(([, refs]) => refs?.length));
     const outputNodes = (settings.outputNodes || []).filter((id) => workflow[id]);
-    const clean = { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}) };
+    const clean = { ...(Object.keys(mapping).length ? { mapping } : {}), ...(outputNodes.length ? { outputNodes } : {}), ...(settings.seedMode === "fixed" ? { seedMode: "fixed" } : {}) };
     return JSON.stringify(Object.keys(clean).length ? { prompt: workflow, [SETTINGS_KEY]: clean } : workflow, null, 2);
 }
 
@@ -183,6 +184,21 @@ export function listComfyOutputNodes(workflow: ComfyWorkflow): ComfyOutputNode[]
         const kind = AUDIO_OUTPUT_CLASS.test(classType) ? ("audio" as const) : VIDEO_OUTPUT_NODE.test(classType) ? ("video" as const) : ("image" as const);
         return [{ nodeId, classType, title: node._meta?.title, kind }];
     });
+}
+
+/** 画布没有对应输入、但常需要调的数值参数：采样器的步数、CFG、重绘幅度，视频的帧数和帧率。 */
+const TUNABLE_INPUTS = ["steps", "cfg", "denoise", "guidance", "length", "frames", "num_frames", "video_frames", "fps", "frame_rate"];
+
+/** 列出可在编辑器里直接改的数值参数（只列直接填数字的，连线输入不列），按节点顺序。 */
+export function listComfyTunableInputs(workflow: ComfyWorkflow): ComfyInputOption[] {
+    return listComfyInputs(workflow).filter((item) => typeof item.value === "number" && TUNABLE_INPUTS.includes(item.input));
+}
+
+/** 返回改了一个节点参数后的新工作流；参数不存在或是连线输入时原样返回。 */
+export function setComfyInputValue(workflow: ComfyWorkflow, ref: ComfyInputRef, value: string | number | boolean): ComfyWorkflow {
+    const result = structuredClone(workflow);
+    setInput(result, ref, value);
+    return result;
 }
 
 /** 工作流里已经用占位符接管的参数。 */
@@ -241,6 +257,7 @@ export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables
         }
         // 自动识别的种子每个采样器各换一个，手动映射的种子用同一个值。
         if (param === "seed") {
+            if (settings.seedMode === "fixed" && vars.seed === undefined) continue;
             refs.forEach((ref) => setInput(result, ref, manual || vars.seed !== undefined ? seed : Math.floor(Math.random() * MAX_SEED)));
             continue;
         }

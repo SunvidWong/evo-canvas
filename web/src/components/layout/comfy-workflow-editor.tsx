@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Checkbox, Empty, Input, Modal, Segmented, Select, Spin } from "antd";
+import { Alert, Button, Checkbox, Empty, Input, InputNumber, Modal, Segmented, Select, Spin } from "antd";
 import { ChevronDown, ChevronRight, FolderOpen, History, Upload, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -14,9 +14,11 @@ import {
     fetchComfySavedWorkflows,
     listComfyInputs,
     listComfyOutputNodes,
+    listComfyTunableInputs,
     parseComfySettings,
     parseComfyWorkflow,
     serializeComfyWorkflow,
+    setComfyInputValue,
     toComfyApiWorkflow,
     type ComfyCanvasSettings,
     type ComfyHistoryWorkflow,
@@ -32,7 +34,7 @@ export type ComfyWorkflowDraft = { name: string; capability: ModelCapability; wo
 /** 把保存的 JSON 拆成编辑框里的工作流文本和画布设置；没有设置时保留原文。 */
 function splitStoredWorkflow(text: string): { workflow: string; settings: ComfyCanvasSettings } {
     const settings = parseComfySettings(text);
-    if (!settings.mapping && !settings.outputNodes) return { workflow: text, settings: {} };
+    if (!Object.keys(settings).length) return { workflow: text, settings: {} };
     try {
         return { workflow: JSON.stringify(parseComfyWorkflow(text), null, 2), settings };
     } catch {
@@ -163,6 +165,22 @@ export function ComfyWorkflowEditor({
     const parsed = useMemo(() => tryParseWorkflow(draft.workflow), [draft.workflow]);
     const inputs = useMemo(() => (parsed ? listComfyInputs(parsed) : []), [parsed]);
     const outputs = useMemo(() => (parsed ? listComfyOutputNodes(parsed) : []), [parsed]);
+    const tunables = useMemo(() => (parsed ? listComfyTunableInputs(parsed) : []), [parsed]);
+    const setTunable = (ref: ComfyInputRef, next: number | null) => {
+        if (!parsed || next === null || !Number.isFinite(next)) return;
+        setDraft((current) => {
+            const updated = setComfyInputValue(parsed, ref, next);
+            // 粘贴的导出文件可能带着 { prompt, infinite_canvas } 外壳，只替换里面的工作流，保留映射等设置。
+            let raw: unknown;
+            try {
+                raw = JSON.parse(current.workflow);
+            } catch {
+                raw = null;
+            }
+            const wrapped = raw && typeof raw === "object" && !Array.isArray(raw) && (raw as { prompt?: unknown }).prompt && typeof (raw as { prompt?: unknown }).prompt === "object";
+            return { ...current, workflow: JSON.stringify(wrapped ? { ...(raw as object), prompt: updated } : updated, null, 2) };
+        });
+    };
     const auto = useMemo(() => (parsed ? autoComfyInputs(parsed) : {}), [parsed]);
     const placeholders = useMemo(() => new Set(parsed ? comfyPlaceholderParams(parsed) : []), [parsed]);
     const inputLabel = (ref: ComfyInputRef) => {
@@ -207,8 +225,8 @@ export function ComfyWorkflowEditor({
         // 只保留当前工作流里还存在的参数和输出节点。
         const valid = new Set(listComfyInputs(workflow).map((item) => item.ref));
         const mapping = Object.fromEntries(Object.entries(settings.mapping || {}).map(([param, refs]) => [param, (refs || []).filter((ref) => valid.has(ref))]));
-        const cleaned = { mapping, outputNodes: settings.outputNodes };
-        const hasSettings = Object.values(mapping).some((refs) => refs.length) || (settings.outputNodes || []).some((id) => workflow[id]);
+        const cleaned = { mapping, outputNodes: settings.outputNodes, seedMode: settings.seedMode };
+        const hasSettings = Object.values(mapping).some((refs) => refs.length) || (settings.outputNodes || []).some((id) => workflow[id]) || settings.seedMode === "fixed";
         onSave({ ...draft, name, workflow: hasSettings ? serializeComfyWorkflow(workflow, cleaned) : draft.workflow.trim() }, value?.name);
         onClose();
     };
@@ -394,10 +412,41 @@ export function ComfyWorkflowEditor({
                                                     options={inputs.map((item) => ({ value: item.ref, label: `${inputLabel(item.ref)} = ${String(item.value).slice(0, 40)}` }))}
                                                     onChange={(refs: ComfyInputRef[]) => setMapping(param, refs)}
                                                 />
+                                                {param === "seed" && !placeholders.has(param) ? (
+                                                    <div className="flex flex-wrap items-center gap-2 md:col-start-2">
+                                                        <Segmented
+                                                            size="small"
+                                                            data-testid="comfy-seed-mode"
+                                                            value={settings.seedMode || "random"}
+                                                            options={[
+                                                                { value: "random", label: t("config.comfyWorkflow.seedRandom") },
+                                                                { value: "fixed", label: t("config.comfyWorkflow.seedFixed") },
+                                                            ]}
+                                                            onChange={(mode) => setSettings((current) => ({ ...current, seedMode: mode === "fixed" ? "fixed" : undefined }))}
+                                                        />
+                                                        <span className="text-xs text-stone-500">{t(settings.seedMode === "fixed" ? "config.comfyWorkflow.seedFixedHint" : "config.comfyWorkflow.seedRandomHint")}</span>
+                                                    </div>
+                                                ) : null}
                                             </label>
                                         );
                                     })}
                                 </div>
+                                {tunables.length ? (
+                                    <div data-testid="comfy-tunables">
+                                        <div className="mb-1 text-xs font-medium">{t("config.comfyWorkflow.tunableTitle")}</div>
+                                        <div className="grid gap-1.5 md:grid-cols-2">
+                                            {tunables.map((item) => (
+                                                <label key={item.ref} className="flex items-center justify-between gap-2 text-xs">
+                                                    <span className="min-w-0 truncate" title={inputLabel(item.ref)}>
+                                                        {inputLabel(item.ref)}
+                                                    </span>
+                                                    <InputNumber size="small" className="!w-28 shrink-0" data-testid={`comfy-tune-${item.ref}`} value={item.value as number} step={item.input === "denoise" ? 0.05 : item.input === "cfg" || item.input === "guidance" ? 0.5 : 1} onChange={(next) => setTunable(item.ref, next)} />
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div className="mt-1 text-xs leading-5 text-stone-500">{t("config.comfyWorkflow.tunableHint")}</div>
+                                    </div>
+                                ) : null}
                                 <div>
                                     <div className="mb-1 text-xs font-medium">{t("config.comfyWorkflow.outputTitle")}</div>
                                     {outputs.length ? (
