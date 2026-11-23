@@ -30,6 +30,12 @@ const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiE
 const POLL_INTERVAL_MS = 1000;
 const MAX_SEED = 2 ** 32 - 1;
 const LATENT_CLASS = /^Empty.*Latent/i;
+/** 放大、修复类节点也带 seed，但不是出图的采样种子，自动识别时跳过（例如 SeedVR2 放大器）。 */
+const NON_SAMPLER_SEED_CLASS = /upscal|seedvr/i;
+
+function isLinkValue(value: unknown) {
+    return Array.isArray(value) && value.length === 2 && typeof value[0] === "string";
+}
 const PROMPT_CLASS = /^CLIPTextEncode/i;
 const SAMPLER_CLASS = /Sampler/i;
 const PLACEHOLDER = /\{\{\s*(\w+)\s*\}\}/g;
@@ -215,21 +221,24 @@ export function autoComfyInputs(workflow: ComfyWorkflow): Partial<Record<ComfyPa
     for (const [id, node] of Object.entries(workflow)) {
         const inputs = node.inputs || {};
         if (LATENT_CLASS.test(node.class_type || "")) {
-            if (typeof inputs.width === "number") result.width?.push(`${id}.width`);
-            if (typeof inputs.height === "number") result.height?.push(`${id}.height`);
+            // 宽高连到分辨率选择节点（例如 TTResolutionSelector）时也算：画布指定了尺寸就直接填数字替换连线。
+            if (typeof inputs.width === "number" || isLinkValue(inputs.width)) result.width?.push(`${id}.width`);
+            if (typeof inputs.height === "number" || isLinkValue(inputs.height)) result.height?.push(`${id}.height`);
             if (typeof inputs.batch_size === "number") result.count?.push(`${id}.batch_size`);
         }
-        if (typeof inputs.seed === "number") result.seed?.push(`${id}.seed`);
-        if (typeof inputs.noise_seed === "number") result.seed?.push(`${id}.noise_seed`);
+        if (!NON_SAMPLER_SEED_CLASS.test(node.class_type || "")) {
+            if (typeof inputs.seed === "number") result.seed?.push(`${id}.seed`);
+            if (typeof inputs.noise_seed === "number") result.seed?.push(`${id}.noise_seed`);
+        }
         if (node.class_type === "LoadImage" && node.inputs) result.image?.push(`${id}.image`);
     }
     return result;
 }
 
-function setInput(workflow: ComfyWorkflow, ref: ComfyInputRef, value: unknown) {
+function setInput(workflow: ComfyWorkflow, ref: ComfyInputRef, value: unknown, replaceLink = false) {
     const parts = splitRef(ref);
     const inputs = parts ? workflow[parts[0]]?.inputs : undefined;
-    if (!parts || !inputs || !(parts[1] in inputs) || Array.isArray(inputs[parts[1]])) return;
+    if (!parts || !inputs || !(parts[1] in inputs) || (Array.isArray(inputs[parts[1]]) && !replaceLink)) return;
     inputs[parts[1]] = value;
 }
 
@@ -263,7 +272,8 @@ export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables
         }
         const value = { prompt: vars.prompt, width: vars.width, height: vars.height, count: vars.count, seconds: vars.seconds }[param];
         if (value === undefined || value === "" || (param !== "prompt" && !value)) continue;
-        refs.forEach((ref) => setInput(result, ref, value));
+        // 只有自动识别出的 Empty*Latent 宽高可以替换连线；手动映射只能选直接填值的参数。
+        refs.forEach((ref) => setInput(result, ref, value, !manual && (param === "width" || param === "height")));
     }
     return result;
 }
@@ -395,13 +405,24 @@ export async function uploadComfyImage(config: Pick<AiConfig, "baseUrl" | "apiKe
     return result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
 }
 
-type ComfyQueue = { queue_running?: unknown[][]; queue_pending?: unknown[][] };
+type ComfyQueue = { queue_running?: unknown[]; queue_pending?: unknown[] };
+
+/** 队列里的一项：旧版是 [序号, prompt_id, ...]，也兼容写成 { number, prompt_id } 的对象。 */
+function queueEntry(item: unknown): { number: number; id: unknown } | null {
+    if (Array.isArray(item)) return { number: Number(item[0]), id: item[1] };
+    if (item && typeof item === "object") {
+        const record = item as { number?: unknown; prompt_id?: unknown; id?: unknown };
+        return { number: Number(record.number), id: record.prompt_id ?? record.id };
+    }
+    return null;
+}
 
 /** 在 /queue 里找到任务：正在执行返回 0，排队中返回前面还有几个任务 + 1，找不到返回 undefined。 */
 export function comfyQueuePosition(queue: ComfyQueue | undefined, promptId: string) {
-    if (queue?.queue_running?.some((item) => Array.isArray(item) && item[1] === promptId)) return 0;
-    const pending = (queue?.queue_pending || []).filter((item) => Array.isArray(item)).sort((a, b) => Number(a[0]) - Number(b[0]));
-    const index = pending.findIndex((item) => item[1] === promptId);
+    const entries = (list: unknown) => (Array.isArray(list) ? list.map(queueEntry).filter((item): item is { number: number; id: unknown } => Boolean(item)) : []);
+    if (entries(queue?.queue_running).some((item) => item.id === promptId)) return 0;
+    const pending = entries(queue?.queue_pending).sort((a, b) => (Number.isFinite(a.number) && Number.isFinite(b.number) ? a.number - b.number : 0));
+    const index = pending.findIndex((item) => item.id === promptId);
     return index >= 0 ? index + 1 : undefined;
 }
 
@@ -501,8 +522,9 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
                         return undefined;
                     });
                     const position = comfyQueuePosition(queue, promptId);
-                    if (position === 0) report({ phase: "running" });
-                    else if (position !== undefined) report({ phase: "queued", position });
+                    if (position !== undefined && position > 0) report({ phase: "queued", position });
+                    // 正在执行，或者队列格式认不出来：至少显示「执行中」，不让节点一直只有转圈。
+                    else if (queue) report({ phase: "running" });
                 }
                 await delay(POLL_INTERVAL_MS, options?.signal);
                 const history = await comfyFetch<ComfyHistory>(config, `/history/${encodeURIComponent(promptId)}`, { signal: options?.signal });

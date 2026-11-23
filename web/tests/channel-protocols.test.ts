@@ -313,6 +313,10 @@ describe("ComfyUI 工作流", () => {
         expect(comfyQueuePosition(queue, "c")).toBe(3);
         expect(comfyQueuePosition(queue, "gone")).toBeUndefined();
         expect(comfyQueuePosition(undefined, "a")).toBeUndefined();
+        // 也认 { number, prompt_id } 形式的队列项。
+        const objects = { queue_running: [{ number: 5, prompt_id: "run" }], queue_pending: [{ number: 9, prompt_id: "c" }, { number: 7, prompt_id: "a" }] };
+        expect(comfyQueuePosition(objects, "run")).toBe(0);
+        expect(comfyQueuePosition(objects, "c")).toBe(2);
         expect(comfySocketUrl({ baseUrl: "http://10.10.20.10:8188/" }, "c1")).toBe("ws://10.10.20.10:8188/ws?clientId=c1");
         expect(comfySocketUrl({ baseUrl: "https://comfy.example.com/sub" }, "c1")).toBe("wss://comfy.example.com/sub/ws?clientId=c1");
     });
@@ -591,5 +595,26 @@ describe("ComfyUI seed mode and tunable inputs", () => {
         const next = setComfyInputValue(wf(), "3.steps", 30);
         expect(next["3"].inputs.steps).toBe(30);
         expect(setComfyInputValue(wf(), "3.model", 1)["3"].inputs.model).toEqual(["4", 0]);
+    });
+});
+
+describe("ComfyUI auto-detection on real workflows", () => {
+    const wf = () => ({
+        "98": { class_type: "TTResolutionSelector", inputs: { aspect_ratio: "9:16", resolution: "1080p" } },
+        "5": { class_type: "EmptySD3LatentImage", inputs: { width: ["98", 0], height: ["98", 1], batch_size: 1 } },
+        "99": { class_type: "Seed (rgthree)", inputs: { seed: 7 } },
+        "90": { class_type: "SeedVR2VideoUpscaler", inputs: { seed: 42, image: ["8", 0] } },
+        "3": { class_type: "KSampler", inputs: { seed: ["99", 0], latent_image: ["5", 0] } },
+    });
+    test("canvas size replaces width/height linked to a resolution selector", () => {
+        expect(autoComfyInputs(wf()).width).toEqual(["5.width"]);
+        const sized = buildComfyWorkflow(wf(), { prompt: "x", width: 1024, height: 1024 });
+        expect([sized["5"].inputs.width, sized["5"].inputs.height]).toEqual([1024, 1024]);
+        // 画布选自动尺寸时保留连线，由工作流自己决定。
+        expect(buildComfyWorkflow(wf(), { prompt: "x" })["5"].inputs.width).toEqual(["98", 0]);
+    });
+    test("upscaler seeds are not treated as sampler seeds", () => {
+        expect(autoComfyInputs(wf()).seed).toEqual(["99.seed"]);
+        expect(buildComfyWorkflow(wf(), { prompt: "x" })["90"].inputs.seed).toBe(42);
     });
 });

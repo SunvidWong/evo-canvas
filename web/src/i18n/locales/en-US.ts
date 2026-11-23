@@ -591,7 +591,7 @@ export default {
             mappingNone: "Auto: not found, left unchanged",
             mappingPlaceholder: "Set by placeholder",
             params: { prompt: "Prompt", width: "Width", height: "Height", count: "Count", seed: "Seed", seconds: "Duration (s)", image: "Reference images (in order)" },
-            seedRandom: "Random", seedFixed: "Fixed", seedRandomHint: "Use a new seed for each generation", seedFixedHint: "Keep the seed written in the workflow so the same settings give the same image", tunableTitle: "Sampler and video settings", tunableHint: "The canvas has no inputs for these; values you change here are written into the workflow.", outputTitle: "Output nodes to read results from",
+            seedRandom: "Random", seedFixed: "Fixed", seedRandomHint: "Use a new seed for each generation", seedFixedHint: "Keep the seed written in the workflow so the same settings give the same image", tunableTitle: "Sampler and video settings", tunableHint: "The canvas has no inputs for these; values you change here are written into the workflow.", convertLoadingNodes: "Reading node definitions from ComfyUI. This can take 10+ seconds with many custom nodes and only happens once…", converting: "Converting to API format…", outputTitle: "Output nodes to read results from",
             outputHint: "Leave all unchecked to use every output node. If none of the checked nodes produce files, all outputs are used.",
             outputNone: "No Save/Preview output nodes found. All outputs returned by ComfyUI will be used.",
         },

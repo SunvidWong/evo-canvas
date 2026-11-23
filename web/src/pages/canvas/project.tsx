@@ -314,10 +314,18 @@ function InfiniteCanvasPage() {
         return controller;
     }, []);
 
+    /** 打开着的「停止生成？」确认框；生成自己结束后要关掉，不然点「停止」已经没有意义。 */
+    const stopConfirmRef = useRef<{ runningId: string; destroy: () => void } | null>(null);
+
     const finishGenerationRequest = useCallback((targetNodeId: string, controller: AbortController) => {
         const request = generationRequestsRef.current.get(targetNodeId);
         if (request?.controller === controller) generationRequestsRef.current.delete(targetNodeId);
         if (![...generationRequestsRef.current.values()].some((item) => item.controller === controller)) unbindComfyProgress(controller.signal);
+        const confirm = stopConfirmRef.current;
+        if (confirm && ![...generationRequestsRef.current.values()].some((item) => item.runningNodeId === confirm.runningId)) {
+            confirm.destroy();
+            stopConfirmRef.current = null;
+        }
     }, []);
 
     const completeVideoNodeTask = useCallback(
@@ -429,14 +437,19 @@ function InfiniteCanvasPage() {
 
     const confirmStopGeneration = useCallback(
         (nodeId: string) => {
-            modal.confirm({
+            stopConfirmRef.current?.destroy();
+            const instance = modal.confirm({
                 title: t("canvas.projectPage.stopTitle"),
                 content: t("canvas.projectPage.stopDescription"),
                 okText: t("canvas.projectPage.stop"),
                 cancelText: t("canvas.projectPage.continue"),
                 okButtonProps: { danger: true },
                 onOk: () => stopGenerationByRunningId(nodeId),
+                afterClose: () => {
+                    if (stopConfirmRef.current?.destroy === instance.destroy) stopConfirmRef.current = null;
+                },
             });
+            stopConfirmRef.current = { runningId: nodeId, destroy: instance.destroy };
         },
         [modal, stopGenerationByRunningId, t],
     );
@@ -1800,6 +1813,15 @@ function InfiniteCanvasPage() {
 
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
+        // 在节点里选的模型和张数记为默认值，下次新建同类节点直接沿用。
+        const type = nodesRef.current.find((node) => node.id === nodeId)?.type;
+        const { updateConfig } = useConfigStore.getState();
+        if (patch?.model) {
+            if (type === CanvasNodeType.Image || type === CanvasNodeType.Config) updateConfig("imageModel", patch.model);
+            else if (type === CanvasNodeType.Video) updateConfig("videoModel", patch.model);
+            else if (type === CanvasNodeType.Audio) updateConfig("audioModel", patch.model);
+        }
+        if (patch?.count && (type === CanvasNodeType.Image || type === CanvasNodeType.Config)) updateConfig("canvasImageCount", String(patch.count));
     }, []);
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
