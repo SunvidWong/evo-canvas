@@ -408,7 +408,7 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
         if (progress.phase === "running") running = true;
         else if (running) return;
         options?.onProgress?.(progress);
-        setComfyProgress(options?.signal, progress);
+        setComfyProgress(options?.signal, clientId, progress);
     };
     const stopSocket = watchComfySocket(config, clientId, workflow, () => promptId, report);
     try {
@@ -451,7 +451,7 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
         }
     } finally {
         stopSocket();
-        clearComfyProgress(options?.signal);
+        clearComfyProgress(options?.signal, clientId);
     }
 }
 

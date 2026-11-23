@@ -16,7 +16,7 @@ afterAll(() => {
     else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-const { bindComfyProgressNode, getComfyNodeProgress } = await import("../src/lib/comfy-progress");
+const { bindComfyProgressNode, childComfyProgressSignal, clearComfyProgress, getComfyNodeProgress, setComfyProgress } = await import("../src/lib/comfy-progress");
 const { buildApiUrl, channelNeedsApiKey, guessCapability, upsertChannelCredentials, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
 const {
     autoComfyInputs,
@@ -263,6 +263,30 @@ describe("ComfyUI 工作流", () => {
         } finally {
             globalThis.fetch = originalFetch;
         }
+    });
+
+    test("同一次生成里的多个工作流分别记录进度，单张图有自己的进度", () => {
+        const parent = new AbortController();
+        bindComfyProgressNode(parent.signal, "root");
+        setComfyProgress(parent.signal, "a", { phase: "queued", position: 3 });
+        setComfyProgress(parent.signal, "b", { phase: "queued", position: 1 });
+        expect(getComfyNodeProgress("root")).toEqual({ phase: "queued", position: 1 });
+        setComfyProgress(parent.signal, "a", { phase: "running", value: 2, max: 20 });
+        expect(getComfyNodeProgress("root")).toEqual({ phase: "running", value: 2, max: 20 });
+        clearComfyProgress(parent.signal, "a");
+        expect(getComfyNodeProgress("root")).toEqual({ phase: "queued", position: 1 });
+        const first = childComfyProgressSignal(parent.signal, "img-1");
+        const second = childComfyProgressSignal(parent.signal, "img-2");
+        setComfyProgress(first.signal, "x", { phase: "running" });
+        setComfyProgress(second.signal, "y", { phase: "queued", position: 2 });
+        expect(getComfyNodeProgress("img-1")).toEqual({ phase: "running" });
+        expect(getComfyNodeProgress("img-2")).toEqual({ phase: "queued", position: 2 });
+        first.release();
+        expect(getComfyNodeProgress("img-1")).toBeUndefined();
+        parent.abort();
+        expect(second.signal.aborted).toBe(true);
+        expect(getComfyNodeProgress("img-2")).toBeUndefined();
+        expect(getComfyNodeProgress("root")).toBeUndefined();
     });
 
     test("排队位置和 WebSocket 地址", () => {

@@ -512,9 +512,10 @@ function LoadingContent({ theme, nodeId }: Pick<NodeContentRendererProps, "theme
 }
 
 /** ComfyUI 任务的排队位置或执行进度；其他协议没有进度时不显示。 */
-function ComfyProgressLine({ nodeId, theme }: { nodeId?: string; theme: NodeContentRendererProps["theme"] }) {
+function ComfyProgressLine({ nodeId, imageId, theme }: { nodeId?: string; imageId?: string; theme: NodeContentRendererProps["theme"] }) {
     const { t } = useTranslation();
-    const progress = useComfyNodeProgress(nodeId);
+    // 批量生成时每张图有自己的进度，先看图片再看节点。
+    const progress = useComfyNodeProgress(imageId, nodeId);
     if (!progress) return null;
     const percent = progress.phase === "running" && progress.max ? Math.min(100, Math.round(((progress.value || 0) / progress.max) * 100)) : undefined;
     const text =
@@ -955,7 +956,7 @@ function ImageSlotStatus({ image, nodeId }: { image?: CanvasNodeImage; nodeId?: 
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
             {failed ? <span className="text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
             {!failed ? <span className="text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
-            {!failed ? <ComfyProgressLine nodeId={nodeId} theme={theme} /> : null}
+            {!failed ? <ComfyProgressLine nodeId={nodeId} imageId={image?.id} theme={theme} /> : null}
         </div>
     );
 }

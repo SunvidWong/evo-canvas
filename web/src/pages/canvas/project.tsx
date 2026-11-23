@@ -1,4 +1,4 @@
-import { bindComfyProgressNode, unbindComfyProgress } from "@/lib/comfy-progress";
+import { bindComfyProgressNode, childComfyProgressSignal, unbindComfyProgress } from "@/lib/comfy-progress";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent as ReactChangeEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -2476,10 +2476,15 @@ function InfiniteCanvasPage() {
                     let firstError = "";
                     await Promise.all(
                         imageIds.map(async (imageId) => {
+                            // 每张图一个子 signal：取消跟随整次生成，ComfyUI 进度按图片分别显示。
+                            const imageRequest = childComfyProgressSignal(controller.signal, imageId);
                             try {
-                                const image = referenceImages.length
-                                    ? await requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, { signal: controller.signal }).then((items) => items[0])
-                                    : await requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: controller.signal }).then((items) => items[0]);
+                                const image = await (referenceImages.length
+                                    ? requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, { signal: imageRequest.signal })
+                                    : requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: imageRequest.signal })
+                                )
+                                    .then((items) => items[0])
+                                    .finally(imageRequest.release);
                                 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                                 const imageSize = fitNodeSize(uploaded.width, uploaded.height, imageConfig.width, imageConfig.height);
                                 const item: CanvasNodeImage = { id: imageId, status: NODE_STATUS_SUCCESS, content: uploaded.url, storageKey: uploaded.storageKey, naturalWidth: uploaded.width, naturalHeight: uploaded.height, bytes: uploaded.bytes, mimeType: uploaded.mimeType };
