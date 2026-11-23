@@ -168,7 +168,18 @@ export function ComfyWorkflowEditor({
     const tunables = useMemo(() => (parsed ? listComfyTunableInputs(parsed) : []), [parsed]);
     const setTunable = (ref: ComfyInputRef, next: number | null) => {
         if (!parsed || next === null || !Number.isFinite(next)) return;
-        setDraft((current) => ({ ...current, workflow: JSON.stringify(setComfyInputValue(parsed, ref, next), null, 2) }));
+        setDraft((current) => {
+            const updated = setComfyInputValue(parsed, ref, next);
+            // 粘贴的导出文件可能带着 { prompt, infinite_canvas } 外壳，只替换里面的工作流，保留映射等设置。
+            let raw: unknown;
+            try {
+                raw = JSON.parse(current.workflow);
+            } catch {
+                raw = null;
+            }
+            const wrapped = raw && typeof raw === "object" && !Array.isArray(raw) && (raw as { prompt?: unknown }).prompt && typeof (raw as { prompt?: unknown }).prompt === "object";
+            return { ...current, workflow: JSON.stringify(wrapped ? { ...(raw as object), prompt: updated } : updated, null, 2) };
+        });
     };
     const auto = useMemo(() => (parsed ? autoComfyInputs(parsed) : {}), [parsed]);
     const placeholders = useMemo(() => new Set(parsed ? comfyPlaceholderParams(parsed) : []), [parsed]);
