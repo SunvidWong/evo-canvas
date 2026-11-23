@@ -40,6 +40,8 @@ const {
     summarizeComfyStats,
     toComfyApiWorkflow,
     comfyCopyName,
+    listComfyTunableInputs,
+    setComfyInputValue,
     comfyWorkflowFileName,
 } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
@@ -563,5 +565,31 @@ describe("ComfyUI workflow duplicate and export", () => {
         expect(comfyWorkflowFileName("SDXL 文生图")).toBe("SDXL-文生图.json");
         expect(comfyWorkflowFileName('a/b:c*"d')).toBe("a-b-c-d.json");
         expect(comfyWorkflowFileName("///")).toBe("workflow.json");
+    });
+});
+
+describe("ComfyUI seed mode and tunable inputs", () => {
+    const wf = () => ({
+        "3": { class_type: "KSampler", inputs: { seed: 42, steps: 20, cfg: 7, denoise: 1, model: ["4", 0], positive: ["6", 0] } },
+        "6": { class_type: "CLIPTextEncode", inputs: { text: "cat", clip: ["4", 1] } },
+        "9": { class_type: "SaveImage", inputs: { images: ["8", 0] } },
+    });
+    test("fixed seed keeps the workflow seed, random replaces it", () => {
+        expect(buildComfyWorkflow(wf(), { prompt: "dog" }, { seedMode: "fixed" })["3"].inputs.seed).toBe(42);
+        expect(buildComfyWorkflow(wf(), { prompt: "dog", seed: 7 }, { seedMode: "fixed" })["3"].inputs.seed).toBe(7);
+        const seeds = new Set(Array.from({ length: 5 }, () => buildComfyWorkflow(wf(), { prompt: "dog" })["3"].inputs.seed));
+        expect(seeds.has(42) && seeds.size === 1).toBe(false);
+    });
+    test("seed mode survives save and load", () => {
+        const text = serializeComfyWorkflow(wf(), { seedMode: "fixed" });
+        expect(parseComfySettings(text)).toEqual({ seedMode: "fixed" });
+        expect(parseComfySettings(serializeComfyWorkflow(wf(), { seedMode: "random" }))).toEqual({});
+        expect(JSON.parse(serializeComfyWorkflow(wf(), {}))["3"]).toBeDefined();
+    });
+    test("lists numeric sampler inputs and edits them without touching links", () => {
+        expect(listComfyTunableInputs(wf()).map((item) => item.ref)).toEqual(["3.steps", "3.cfg", "3.denoise"]);
+        const next = setComfyInputValue(wf(), "3.steps", 30);
+        expect(next["3"].inputs.steps).toBe(30);
+        expect(setComfyInputValue(wf(), "3.model", 1)["3"].inputs.model).toEqual(["4", 0]);
     });
 });
