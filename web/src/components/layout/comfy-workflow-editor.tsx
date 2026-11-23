@@ -51,7 +51,8 @@ function isUiFormatText(text: string) {
 
 /** 按输出节点建议用途：有视频输出就是视频，否则是生图。 */
 function suggestCapability(workflow: ComfyWorkflow): ModelCapability {
-    return listComfyOutputNodes(workflow).some((node) => node.kind === "video") ? "video" : "image";
+    const kinds = listComfyOutputNodes(workflow).map((node) => node.kind);
+    return kinds.includes("video") ? "video" : kinds.length && kinds.every((kind) => kind === "audio") ? "audio" : "image";
 }
 
 function tryParseWorkflow(text: string): ComfyWorkflow | null {
@@ -243,7 +244,7 @@ export function ComfyWorkflowEditor({
                         <span className="mb-1 block text-sm font-medium">{t("config.comfyWorkflow.capability")}</span>
                         <Segmented
                             value={draft.capability}
-                            options={(["image", "video"] as const).map((value) => ({ value, label: t(`config.channelEditor.capabilities.${value}`) }))}
+                            options={(["image", "video", "audio"] as const).map((value) => ({ value, label: t(`config.channelEditor.capabilities.${value}`) }))}
                             onChange={(capability) => setDraft({ ...draft, capability: capability as ModelCapability })}
                         />
                     </label>

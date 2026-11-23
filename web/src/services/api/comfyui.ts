@@ -567,6 +567,20 @@ export async function generateComfyVideo(config: Pick<AiConfig, "baseUrl" | "api
     return fetchComfyFile(config, file, options);
 }
 
+const AUDIO_TYPES: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav", flac: "audio/flac", ogg: "audio/ogg", m4a: "audio/mp4", opus: "audio/ogg" };
+
+/** 用工作流生成音频（SaveAudio 等节点），返回第一个音频文件。 */
+export async function generateComfyAudio(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
+    const workflow = parseComfyWorkflow(workflowText);
+    const settings = parseComfySettings(workflowText);
+    const images = await uploadComfyReferences(config, workflow, settings, vars.references, options);
+    const file = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).find((item) => item.kind === "audio");
+    if (!file) throw new Error(apiText("comfyNoOutput"));
+    const blob = await fetchComfyFile(config, file, options);
+    // ComfyUI 没给音频类型时按扩展名补上，方便画布播放和保存。
+    return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: AUDIO_TYPES[file.filename.split(".").pop()?.toLowerCase() || ""] || "audio/flac" });
+}
+
 /** 测试 ComfyUI 是否可连通。 */
 export async function checkComfyConnection(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
     await comfyFetch<unknown>(config, "/system_stats");
@@ -577,7 +591,7 @@ export type ComfyHistoryWorkflow = {
     /** 开始执行的时间（毫秒），ComfyUI 没给时为空。 */
     time?: number;
     workflow: ComfyWorkflow;
-    capability: "image" | "video";
+    capability: "image" | "video" | "audio";
     /** 用于列表展示：模型文件名，没有时用采样器节点名。 */
     summary: string;
     /** 工作流用到的模型文件名。 */
@@ -608,6 +622,7 @@ export function parseComfyHistoryWorkflows(history: unknown): ComfyHistoryWorkfl
         const outputs = collectComfyOutputs(entry.outputs);
         // 优先看实际产出的文件类型；没有输出记录时才看输出节点。
         const video = outputs.length ? outputs.some((file) => file.kind === "video") : nodes.some((node) => VIDEO_OUTPUT_NODE.test(node.class_type || ""));
+        const audio = !video && (outputs.length ? outputs.some((file) => file.kind === "audio") && !outputs.some((file) => file.kind === "image") : nodes.some((node) => /SaveAudio/i.test(node.class_type || "")));
         const models = nodes.flatMap((node) => MODEL_INPUTS.map((key) => node.inputs?.[key]).filter((value): value is string => typeof value === "string" && Boolean(value)));
         const sampler = nodes.find((node) => SAMPLER_CLASS.test(node.class_type || ""))?.class_type;
         const start = entry.status?.messages?.find(([type]) => type === "execution_start")?.[1]?.timestamp;
@@ -617,7 +632,7 @@ export function parseComfyHistoryWorkflows(history: unknown): ComfyHistoryWorkfl
                 order: typeof prompt[0] === "number" ? prompt[0] : -1,
                 time: typeof start === "number" ? start : undefined,
                 workflow,
-                capability: video ? ("video" as const) : ("image" as const),
+                capability: video ? ("video" as const) : audio ? ("audio" as const) : ("image" as const),
                 summary: Array.from(new Set(models)).join(", ") || sampler || "",
                 models: Array.from(new Set(models)),
                 nodeCount: nodes.length,

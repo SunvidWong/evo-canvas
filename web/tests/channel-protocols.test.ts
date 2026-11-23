@@ -25,6 +25,7 @@ const {
     comfyImageSlots,
     comfyQueuePosition,
     comfySocketUrl,
+    generateComfyAudio,
     generateComfyVideo,
     runComfyWorkflow,
     buildComfyWorkflow,
@@ -432,6 +433,27 @@ describe("ComfyUI 工作流", () => {
         } finally {
             globalThis.fetch = originalFetch;
         }
+    });
+
+    test("音频工作流取 SaveAudio 的输出，历史记录里识别为音频", async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (url.endsWith("/prompt")) return new Response(JSON.stringify({ prompt_id: "a1" }));
+            if (url.includes("/history/a1")) return new Response(JSON.stringify({ a1: { status: { status_str: "success", completed: true }, outputs: { "20": { audio: [{ filename: "song.flac", subfolder: "audio", type: "output" }] } } } }));
+            if (url.includes("/view")) return new Response(new Blob(["a"]));
+            return new Response("{}");
+        }) as typeof fetch;
+        try {
+            const blob = await generateComfyAudio({ baseUrl: "http://comfy.local", apiKey: "" }, JSON.stringify({ "6": { class_type: "TextEncodeAceStepAudio", inputs: { tags: "pop" } }, "20": { class_type: "SaveAudio", inputs: {} } }), {
+                prompt: "happy",
+            });
+            expect(blob.type).toBe("audio/flac");
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+        const [item] = parseComfyHistoryWorkflows({ x: { prompt: [0, "x", { "20": { class_type: "SaveAudio", inputs: {} } }], outputs: { "20": { audio: [{ filename: "a.mp3", type: "output" }] } } } });
+        expect(item.capability).toBe("audio");
     });
 
     test("只接受 API 格式工作流", () => {

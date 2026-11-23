@@ -204,7 +204,7 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
                                 {model.name}
                             </span>
                             <div className="flex shrink-0 items-center gap-2">
-                                <Segmented size="small" value={model.capability} options={isComfy ? capabilityOptions.filter((option) => option.value === "image" || option.value === "video") : capabilityOptions} onChange={(value) => setCapability(model.name, value as ModelCapability)} />
+                                <Segmented size="small" value={model.capability} options={isComfy ? capabilityOptions.filter((option) => option.value !== "text") : capabilityOptions} onChange={(value) => setCapability(model.name, value as ModelCapability)} />
                                 {isComfy ? (
                                     <Button size="small" type={model.workflow ? "primary" : "default"} ghost={Boolean(model.workflow)} danger={!model.workflow} icon={<Workflow className="size-3.5" />} onClick={() => setWorkflowTarget({ value: { name: model.name, capability: model.capability, workflow: model.workflow || "" } })}>
                                         {t(model.workflow ? "config.channelEditor.workflowReady" : "config.channelEditor.workflowMissing")}

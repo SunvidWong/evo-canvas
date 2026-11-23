@@ -3,7 +3,8 @@ import axios from "axios";
 import i18n from "@/i18n";
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
-import { apiFormatName, buildApiUrl, channelNeedsApiKey, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { apiFormatName, buildApiUrl, channelNeedsApiKey, resolveModelRequestConfig, resolveModelScript, resolveModelWorkflow, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
+import { generateComfyAudio } from "./comfyui";
 import { runModelPlugin } from "./model-plugin";
 
 type RequestOptions = { signal?: AbortSignal };
@@ -25,6 +26,16 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
     const model = requestConfig.model.trim();
     const format = normalizeAudioFormatValue(config.audioFormat);
     const script = resolveModelScript(config, config.model || config.audioModel);
+    // ComfyUI：按模型配置的工作流生成音频，提示词按画布参数映射填入。
+    if (requestConfig.apiFormat === "comfyui") {
+        const workflow = resolveModelWorkflow(config, config.model || config.audioModel);
+        if (!workflow) throw new Error(apiText("comfyWorkflowMissing", { model }));
+        try {
+            return await generateComfyAudio(requestConfig, workflow, { prompt }, options);
+        } catch (error) {
+            throw new Error(readAxiosError(error, apiText("audioGenerationFailed")));
+        }
+    }
     if (script) {
         if (!model) throw new Error(apiText("audioModelRequired"));
         if (!requestConfig.baseUrl.trim()) throw new Error(apiText("baseUrlRequired"));
