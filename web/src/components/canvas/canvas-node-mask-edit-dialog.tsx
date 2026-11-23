@@ -10,6 +10,8 @@ import { useImageEditorViewport } from "@/components/canvas/use-image-editor-vie
 export type CanvasImageMaskEditPayload = {
     prompt: string;
     maskDataUrl: string;
+    /** 只含涂抹区域的蒙版（与原图同尺寸）：涂抹处透明、其余不透明，ComfyUI 的 /upload/mask 按这个透明度生成蒙版。 */
+    inpaintMaskDataUrl?: string;
     generate: boolean;
 };
 
@@ -210,7 +212,7 @@ export function CanvasNodeMaskEditDialog({ dataUrl, open, onClose, onConfirm }: 
         if (!nextPrompt) return setError(t("canvas.editors.maskPromptRequired"));
         if (!canvas || !element) return;
         if (!canvasHasPaint(canvas)) return setError(t("canvas.editors.maskRequired"));
-        onConfirm({ prompt: nextPrompt, maskDataUrl: buildMaskOverlay(element, canvas), generate });
+        onConfirm({ prompt: nextPrompt, maskDataUrl: buildMaskOverlay(element, canvas), inpaintMaskDataUrl: buildInpaintMask(canvas), generate });
     };
 
     return (
@@ -414,6 +416,21 @@ function canvasHasPaint(canvas: HTMLCanvasElement) {
         if (data[index] > 0) return true;
     }
     return false;
+}
+
+/** 把涂抹层转成 ComfyUI 蒙版：涂抹越实的地方越透明（LoadImage 读出的 MASK = 1 - alpha）。 */
+function buildInpaintMask(selectionCanvas: HTMLCanvasElement) {
+    const source = selectionCanvas.getContext("2d", { willReadFrequently: true });
+    const canvas = document.createElement("canvas");
+    canvas.width = selectionCanvas.width;
+    canvas.height = selectionCanvas.height;
+    const context = canvas.getContext("2d");
+    if (!source || !context) return undefined;
+    const painted = source.getImageData(0, 0, canvas.width, canvas.height);
+    const mask = context.createImageData(canvas.width, canvas.height);
+    for (let index = 3; index < painted.data.length; index += 4) mask.data[index] = 255 - painted.data[index];
+    context.putImageData(mask, 0, 0);
+    return canvas.toDataURL("image/png");
 }
 
 function buildMaskOverlay(image: HTMLImageElement, selectionCanvas: HTMLCanvasElement) {

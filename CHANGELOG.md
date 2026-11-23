@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [新增] ComfyUI 支持局部重绘：局部遮罩编辑会把涂抹区域通过 /upload/mask 作为原图的蒙版上传，工作流里 LoadImage 的 MASK 输出就是涂抹区域。
 + [新增] Codex Agent 可以改用本地或第三方模型：在连接设置里填兼容 OpenAI Responses 接口的地址和模型（例如 Ollama、LM Studio、vLLM），重启本地 Agent 后生效。
 + [修复] ComfyUI 真机验收问题：开发代理转发 WebSocket 时去掉 Origin，修好进度不显示；宽高连到分辨率选择节点时按画布尺寸填写；放大器的 seed 不再当作采样种子；转换工作流时显示进度文字；生成结束后自动关闭「停止生成？」确认框；新建图片节点沿用上次选的模型和张数。
 + [新增] ComfyUI 工作流可以把种子设为「固定」以复现同一张图，并能在编辑窗口里直接改步数、CFG、重绘幅度和视频帧数、帧率。

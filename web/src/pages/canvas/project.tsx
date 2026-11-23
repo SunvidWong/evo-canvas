@@ -2080,7 +2080,8 @@ function InfiniteCanvasPage() {
             setRunningNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
-                const image = await requestEdit(generationConfig, prompt, references, { signal: controller.signal }).then((items) => items[0]);
+                const inpaint = payload.inpaintMaskDataUrl ? { mask: payload.inpaintMaskDataUrl, prompt: userPrompt } : undefined;
+                const image = await requestEdit(generationConfig, prompt, references, { signal: controller.signal, inpaint }).then((items) => items[0]);
                 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
                 setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));

@@ -98,7 +98,8 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+/** inpaint：局部重绘时给 ComfyUI 用的纯蒙版和用户原话；其他协议忽略，仍按原图加标注图编辑。 */
+type RequestOptions = { signal?: AbortSignal; inpaint?: { mask: string; prompt: string } };
 
 const IMAGE_QUALITY_VALUES = ["low", "medium", "high", "xhigh", "max"];
 const DEFAULT_IMAGE_SHORT_SIDE = 1024;
@@ -335,8 +336,10 @@ async function requestProtocolImages(config: AiConfig, requestConfig: AiConfig, 
     const size = resolveRequestSize(config.size);
     const [width, height] = size ? size.split("x").map(Number) : [];
     try {
-        const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
-        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, prompt), width, height, count, references: refs }, options);
+        // 局部重绘只传原图（第一张）和蒙版，不传蓝色标注图，提示词用用户原话。
+        const inpaint = options?.inpaint && references.length ? options.inpaint : undefined;
+        const refs = await Promise.all((inpaint ? references.slice(0, 1) : references).map((image) => imageToDataUrl(image)));
+        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, inpaint ? inpaint.prompt : prompt), width, height, count, references: refs, mask: inpaint?.mask }, { signal: options?.signal });
         return images.map((dataUrl) => ({ id: nanoid(), dataUrl }));
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));

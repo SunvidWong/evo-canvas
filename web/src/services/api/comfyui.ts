@@ -405,6 +405,26 @@ export async function uploadComfyImage(config: Pick<AiConfig, "baseUrl" | "apiKe
     return result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
 }
 
+/**
+ * 给已上传的图片加蒙版：ComfyUI 把蒙版的透明度写进原图的 alpha 通道，另存为新文件，LoadImage 的 MASK 输出就是涂抹区域。
+ * imagePath 是 uploadComfyImage 返回的「子目录/文件名」。返回带蒙版的新文件路径。
+ */
+export async function uploadComfyMask(config: Pick<AiConfig, "baseUrl" | "apiKey">, imagePath: string, maskDataUrl: string, options?: RequestOptions) {
+    const slash = imagePath.lastIndexOf("/");
+    const subfolder = slash >= 0 ? imagePath.slice(0, slash) : "";
+    const filename = slash >= 0 ? imagePath.slice(slash + 1) : imagePath;
+    const file = dataUrlToFile({ id: nanoid(), name: "mask", type: "", dataUrl: maskDataUrl });
+    const form = new FormData();
+    form.append("image", file, `${filename.replace(/\.[^.]+$/, "")}-mask.png`);
+    form.append("original_ref", JSON.stringify({ filename, subfolder, type: "input" }));
+    form.append("subfolder", subfolder);
+    form.append("type", "input");
+    form.append("overwrite", "true");
+    const result = await comfyFetch<{ name?: string; subfolder?: string }>(config, "/upload/mask", { method: "POST", body: form, signal: options?.signal });
+    if (!result?.name) throw new Error(apiText("requestFailed"));
+    return result.subfolder ? `${result.subfolder}/${result.name}` : result.name;
+}
+
 type ComfyQueue = { queue_running?: unknown[]; queue_pending?: unknown[] };
 
 /** 队列里的一项：旧版是 [序号, prompt_id, ...]，也兼容写成 { number, prompt_id } 的对象。 */
@@ -579,18 +599,21 @@ function notifyWarning(text: string) {
 }
 
 /** 只上传工作流用得上的参考图；多出来的不上传，并提示只用了前几张。 */
-async function uploadComfyReferences(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, settings: ComfyCanvasSettings, references: string[] = [], options?: RequestOptions) {
+async function uploadComfyReferences(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, settings: ComfyCanvasSettings, references: string[] = [], options?: RequestOptions, mask?: string) {
     if (!references.length) return [];
     const slots = comfyImageSlots(workflow, settings);
     if (references.length > slots) notifyWarning(slots ? apiText("comfyExtraReferences", { used: slots, total: references.length }) : apiText("comfyNoReferenceInput", { total: references.length }));
-    return Promise.all(references.slice(0, slots).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
+    const paths = await Promise.all(references.slice(0, slots).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
+    // 局部重绘：蒙版加到第一张参考图（原图）上。
+    if (mask && paths[0]) paths[0] = await uploadComfyMask(config, paths[0], mask, options);
+    return paths;
 }
 
 /** 用工作流生成图片，返回 data URL 列表。 */
-export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
+export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[]; mask?: string }, options?: RequestOptions) {
     const workflow = parseComfyWorkflow(workflowText);
     const settings = parseComfySettings(workflowText);
-    const images = await uploadComfyReferences(config, workflow, settings, vars.references, options);
+    const images = await uploadComfyReferences(config, workflow, settings, vars.references, options, vars.mask);
     const files = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).filter((file) => file.kind === "image");
     if (!files.length) throw new Error(apiText("comfyNoOutput"));
     return Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options))));
