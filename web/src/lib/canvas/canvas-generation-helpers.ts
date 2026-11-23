@@ -1,6 +1,6 @@
 import { defaultConfig, resolveModelForCapability, type AiConfig } from "@/stores/use-config-store";
 import i18n from "@/i18n";
-import { ensureImagePreview, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { ensureImagePreview, imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { imageMetadata, referenceUrl } from "@/lib/canvas/canvas-node-factory";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
@@ -40,6 +40,14 @@ export async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
         }),
     );
     return references.every(Boolean) ? (references as ReferenceImage[]) : null;
+}
+
+/** 从节点元数据还原局部重绘参数；蒙版读不到时返回 undefined，退回普通编辑。 */
+export async function resolveInpaintOptions(metadata: CanvasNodeMetadata | undefined, signal?: AbortSignal) {
+    const ref = metadata?.inpaintMask;
+    if (metadata?.generationType !== "edit" || !ref) return undefined;
+    const mask = await imageToDataUrl(ref.startsWith("image:") ? { storageKey: ref } : { url: ref }, { signal }).catch(() => "");
+    return mask ? { mask, prompt: metadata.inpaintPrompt || "" } : undefined;
 }
 
 export async function hydrateCanvasImages(nodes: CanvasNodeData[]) {

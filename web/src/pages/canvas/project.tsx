@@ -67,6 +67,7 @@ import {
     isAudioFile,
     isGenerationCanceled,
     resetInterruptedGeneration,
+    resolveInpaintOptions,
     resolveMetadataReferences,
     sourceNodeReferenceImages,
 } from "@/lib/canvas/canvas-generation-helpers";
@@ -2045,7 +2046,12 @@ function InfiniteCanvasPage() {
             const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
             const maskSource = { id: maskNodeId, name: "mask.png", type: maskImage.mimeType || "image/png", dataUrl: maskImage.url, storageKey: maskImage.storageKey };
             const references = [source, maskSource];
-            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, references);
+            const inpaintMaskImage = payload.inpaintMaskDataUrl ? await uploadImage(payload.inpaintMaskDataUrl) : null;
+            const inpaintMaskRef = inpaintMaskImage ? inpaintMaskImage.storageKey || inpaintMaskImage.url : undefined;
+            const generationMetadata = {
+                ...buildImageGenerationMetadata("edit", generationConfig, 1, references),
+                ...(inpaintMaskRef ? { inpaintMask: inpaintMaskRef, inpaintPrompt: userPrompt } : {}),
+            };
             const childMetadata = payload.generate ? { prompt, status: NODE_STATUS_LOADING, ...generationMetadata } : { prompt };
             setNodes((prev) => [
                 ...prev,
@@ -2080,7 +2086,7 @@ function InfiniteCanvasPage() {
             setRunningNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
             try {
-                const inpaint = payload.inpaintMaskDataUrl ? { mask: payload.inpaintMaskDataUrl, prompt: userPrompt } : undefined;
+                const inpaint = payload.inpaintMaskDataUrl && inpaintMaskRef ? { mask: payload.inpaintMaskDataUrl, prompt: userPrompt } : undefined;
                 const image = await requestEdit(generationConfig, prompt, references, { signal: controller.signal, inpaint }).then((items) => items[0]);
                 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
@@ -2887,8 +2893,9 @@ function InfiniteCanvasPage() {
                     return;
                 }
 
+                const inpaint = useReferenceImages ? await resolveInpaintOptions(savedImageMetadata, controller.signal) : undefined;
                 const image = useReferenceImages
-                    ? await requestEdit(generationConfig, prompt, retryImages, { signal: controller.signal }).then((items) => items[0])
+                    ? await requestEdit(generationConfig, prompt, retryImages, { signal: controller.signal, inpaint }).then((items) => items[0])
                     : await requestGeneration(generationConfig, prompt, { signal: controller.signal }).then((items) => items[0]);
                 const uploadedImage = await uploadImage(image.dataUrl, { signal: controller.signal });
                 const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
@@ -2911,6 +2918,7 @@ function InfiniteCanvasPage() {
                           ...(generationConfig.background ? { background: generationConfig.background } : {}),
                           count: savedImageMetadata.count || 1,
                           references: savedImageMetadata.references,
+                          ...(savedImageMetadata.inpaintMask ? { inpaintMask: savedImageMetadata.inpaintMask, inpaintPrompt: savedImageMetadata.inpaintPrompt } : {}),
                       }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryImages);
                 setNodes((prev) =>
