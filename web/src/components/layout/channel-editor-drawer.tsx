@@ -27,6 +27,9 @@ import { ModelSelectModal } from "./model-select-modal";
 
 type ScriptTarget = { name: string; capability: ModelCapability; value: string };
 
+/** 释放显存后等多久再重新测连接、刷新显存数值。 */
+const FREE_MEMORY_SETTLE_MS = 2000;
+
 export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: boolean; channel: ModelChannel | null; onSave: (channel: ModelChannel) => void; onClose: () => void }) {
     const { t, i18n } = useTranslation();
     const { message } = App.useApp();
@@ -126,6 +129,8 @@ export function ChannelEditorDrawer({ open, channel, onSave, onClose }: { open: 
             if (action === "free") {
                 await freeComfyMemory(draft);
                 message.success(t("config.channelEditor.freeMemoryDone"));
+                // ComfyUI 收到 /free 后要等执行线程空下来才卸载模型，马上测显存数值还没变。
+                if (testResult?.ok) await new Promise((resolve) => setTimeout(resolve, FREE_MEMORY_SETTLE_MS));
             } else {
                 const count = await clearOwnComfyQueue(draft);
                 message.success(count ? t("config.channelEditor.clearQueueDone", { count }) : t("config.channelEditor.clearQueueEmpty"));
