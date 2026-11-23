@@ -28,6 +28,10 @@ type ComfyHistory = Record<string, { status?: { status_str?: string; completed?:
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 /** 等待 ComfyUI 出图时每次查询的间隔。 */
 const POLL_INTERVAL_MS = 1000;
+/** 执行中每隔几次轮询查一次队列（/queue 会带上所有排队任务的工作流，体积不小）。 */
+const RUNNING_QUEUE_CHECK_EVERY = 5;
+/** 队列和历史里连续这么多次都找不到任务，就当任务已被删除。 */
+const COMFY_LOST_CHECKS = 3;
 const MAX_SEED = 2 ** 32 - 1;
 const LATENT_CLASS = /^Empty.*Latent/i;
 /** 放大、修复类节点也带 seed，但不是出图的采样种子，自动识别时跳过（例如 SeedVR2 放大器）。 */
@@ -458,6 +462,12 @@ function queueEntry(item: unknown): { number: number; id: unknown } | null {
     return null;
 }
 
+/** 队列里的条目都认得出来时才能断定「任务不在队列里」；格式认不出来时不下这个结论。 */
+export function comfyQueueReadable(queue: ComfyQueue | undefined) {
+    const lists = [queue?.queue_running, queue?.queue_pending];
+    return lists.every((list) => Array.isArray(list) && list.every((item) => typeof queueEntry(item)?.id === "string"));
+}
+
 /** 在 /queue 里找到任务：正在执行返回 0，排队中返回前面还有几个任务 + 1，找不到返回 undefined。 */
 export function comfyQueuePosition(queue: ComfyQueue | undefined, promptId: string) {
     const entries = (list: unknown) => (Array.isArray(list) ? list.map(queueEntry).filter((item): item is { number: number; id: unknown } => Boolean(item)) : []);
@@ -535,7 +545,7 @@ async function cancelComfyPrompt(config: Pick<AiConfig, "baseUrl" | "apiKey">, p
 
 /** 提交工作流并等待完成，返回生成的文件列表。排队和执行进度通过 onProgress 回报；取消时会删掉排队中的任务或中断正在执行的任务。 */
 export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, options?: RequestOptions & { outputNodes?: string[]; onProgress?: (progress: ComfyProgress) => void }) {
-    const clientId = `infinite-canvas-${nanoid(8)}`;
+    const clientId = `${COMFY_CLIENT_PREFIX}${nanoid(8)}`;
     let promptId: string | undefined;
     let running = false;
     const report = (progress: ComfyProgress) => {
@@ -555,22 +565,31 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
         promptId = queued?.prompt_id;
         if (!promptId) throw new Error(comfyErrorMessage(queued, workflow) || apiText("requestFailed"));
         try {
-            for (;;) {
-                // 开始执行前顺便查一下排队位置；查询失败不影响等待结果。
+            /** 队列和历史里都连续找不到这个任务的次数：任务被别处删掉或 ComfyUI 重启过，不再干等。 */
+            let missing = 0;
+            for (let poll = 0; ; poll += 1) {
+                // 开始执行前每次都查排队位置；执行中隔几次查一下，确认任务还在。查询失败不影响等待结果。
+                const queue = !running || poll % RUNNING_QUEUE_CHECK_EVERY === 0
+                    ? await comfyFetch<ComfyQueue>(config, "/queue", { signal: options?.signal }).catch((error) => {
+                          if (error instanceof DOMException && error.name === "AbortError") throw error;
+                          return undefined;
+                      })
+                    : undefined;
+                const position = comfyQueuePosition(queue, promptId);
+                const lost = Boolean(queue) && position === undefined && comfyQueueReadable(queue);
                 if (!running) {
-                    const queue = await comfyFetch<ComfyQueue>(config, "/queue", { signal: options?.signal }).catch((error) => {
-                        if (error instanceof DOMException && error.name === "AbortError") throw error;
-                        return undefined;
-                    });
-                    const position = comfyQueuePosition(queue, promptId);
                     if (position !== undefined && position > 0) report({ phase: "queued", position });
                     // 正在执行，或者队列格式认不出来：至少显示「执行中」，不让节点一直只有转圈。
-                    else if (queue) report({ phase: "running" });
+                    else if (queue && !lost) report({ phase: "running" });
                 }
                 await delay(POLL_INTERVAL_MS, options?.signal);
                 const history = await comfyFetch<ComfyHistory>(config, `/history/${encodeURIComponent(promptId)}`, { signal: options?.signal });
                 const entry = history?.[promptId];
-                if (!entry) continue;
+                if (!entry) {
+                    if (queue) missing = lost ? missing + 1 : 0;
+                    if (missing >= COMFY_LOST_CHECKS) throw new Error(apiText("comfyPromptLost"));
+                    continue;
+                }
                 if (entry.status?.status_str === "error") {
                     const failure = entry.status.messages?.find(([type]) => type === "execution_error")?.[1] as Parameters<typeof comfyExecutionErrorMessage>[0];
                     throw new Error(comfyExecutionErrorMessage(failure, workflow));
@@ -671,12 +690,44 @@ export async function generateComfyAudio(config: Pick<AiConfig, "baseUrl" | "api
     return blob.type.startsWith("audio/") ? blob : new Blob([blob], { type: AUDIO_TYPES[file.filename.split(".").pop()?.toLowerCase() || ""] || "audio/flac" });
 }
 
-/** 测试 ComfyUI 是否可连通。 */
+/** 测试 ComfyUI 是否可连通；顺便读一下队列，读不到不影响结果。 */
 export async function checkComfyConnection(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
-    return summarizeComfyStats(await comfyFetch<unknown>(config, "/system_stats"));
+    const summary = summarizeComfyStats(await comfyFetch<unknown>(config, "/system_stats"));
+    const queue = await comfyFetch<ComfyQueue>(config, "/queue").catch(() => undefined);
+    return queue ? { ...summary, queue: summarizeComfyQueue(queue) } : summary;
 }
 
-export type ComfySystemSummary = { version?: string; devices: Array<{ name: string; vramTotalGb?: number; vramFreeGb?: number }> };
+export type ComfyQueueSummary = { running: number; pending: number; mine: number };
+export type ComfySystemSummary = { version?: string; devices: Array<{ name: string; vramTotalGb?: number; vramFreeGb?: number }>; queue?: ComfyQueueSummary };
+
+/** 本站提交的任务都用这个前缀做 client_id，用来区分队列里哪些是自己的。 */
+export const COMFY_CLIENT_PREFIX = "infinite-canvas-";
+
+/** 队列里排队中的任务里，本站提交的那些的 prompt_id。旧版条目是 [序号, prompt_id, prompt, extra_data, ...]。 */
+export function ownPendingComfyPrompts(queue: ComfyQueue | undefined): string[] {
+    return (Array.isArray(queue?.queue_pending) ? queue.queue_pending : []).flatMap((item) => {
+        const [id, extra] = Array.isArray(item) ? [item[1], item[3]] : item && typeof item === "object" ? [(item as { prompt_id?: unknown }).prompt_id, (item as { extra_data?: unknown }).extra_data] : [undefined, undefined];
+        const clientId = extra && typeof extra === "object" ? (extra as { client_id?: unknown }).client_id : undefined;
+        return typeof id === "string" && typeof clientId === "string" && clientId.startsWith(COMFY_CLIENT_PREFIX) ? [id] : [];
+    });
+}
+
+export function summarizeComfyQueue(queue: ComfyQueue | undefined): ComfyQueueSummary {
+    const count = (list: unknown) => (Array.isArray(list) ? list.length : 0);
+    return { running: count(queue?.queue_running), pending: count(queue?.queue_pending), mine: ownPendingComfyPrompts(queue).length };
+}
+
+/** 让 ComfyUI 卸载已加载的模型并释放显存（POST /free），下一次生成会重新加载模型。 */
+export async function freeComfyMemory(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
+    await comfyFetch<unknown>(config, "/free", { method: "POST", headers: comfyHeaders(config, "application/json"), body: JSON.stringify({ unload_models: true, free_memory: true }) });
+}
+
+/** 删除本站提交、还在排队的任务，不动别人的任务和正在执行的任务；返回删除的个数。 */
+export async function clearOwnComfyQueue(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
+    const ids = ownPendingComfyPrompts(await comfyFetch<ComfyQueue>(config, "/queue"));
+    if (ids.length) await comfyFetch<unknown>(config, "/queue", { method: "POST", headers: comfyHeaders(config, "application/json"), body: JSON.stringify({ delete: ids }) });
+    return ids.length;
+}
 const GB = 1024 ** 3;
 
 /** 整理 /system_stats：ComfyUI 版本和每块显卡的名称、显存，用于「测试连接」里展示。 */
