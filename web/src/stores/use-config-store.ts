@@ -4,6 +4,7 @@ import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
+import { channelPresetName, findChannelPresetByUrl } from "@/lib/channel-presets";
 
 /**
  * 渠道协议：
@@ -82,6 +83,9 @@ export type WebdavSyncConfig = {
 };
 export type ConfigTabKey = "channels" | "local-proxy" | "preferences" | "prompt-sources" | "webdav" | "local-storage";
 
+/** 通过链接导入渠道时可带的参数：协议不填时按地址匹配预设推断，仍匹配不到则用 OpenAI。 */
+export type ChannelCredentialsImportInput = { baseUrl?: string | null; apiKey?: string | null; apiFormat?: string | null; name?: string | null };
+
 export type ChannelCredentialsImportResult = {
     status: "created" | "updated" | "missing-base-url" | "invalid-base-url";
     channelName?: string;
@@ -159,7 +163,7 @@ type ConfigStore = {
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
-    importChannelCredentials: (input: { baseUrl?: string | null; apiKey?: string | null }) => ChannelCredentialsImportResult;
+    importChannelCredentials: (input: ChannelCredentialsImportInput) => ChannelCredentialsImportResult;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean, tab?: ConfigTabKey) => void;
@@ -388,7 +392,7 @@ export function normalizeMaxTokens(value: unknown) {
 
 export function upsertChannelCredentials(
     config: AiConfig,
-    input: { baseUrl?: string | null; apiKey?: string | null },
+    input: ChannelCredentialsImportInput,
 ): ChannelCredentialsImportResult & { config: AiConfig } {
     const rawBaseUrl = input.baseUrl?.trim() || "";
     if (!rawBaseUrl) return { status: "missing-base-url", config };
@@ -396,23 +400,27 @@ export function upsertChannelCredentials(
 
     const baseUrl = normalizeImportedBaseUrl(rawBaseUrl);
     const apiKey = input.apiKey?.trim() || "";
+    const requestedFormat = input.apiFormat?.trim().toLowerCase() || "";
+    const explicitFormat = API_CALL_FORMATS.includes(requestedFormat as ApiCallFormat) ? (requestedFormat as ApiCallFormat) : undefined;
+    const preset = findChannelPresetByUrl(baseUrl);
     const matchingIndex = config.channels.findIndex((channel) => normalizedBaseUrlKey(channel.baseUrl) === normalizedBaseUrlKey(baseUrl));
 
     if (matchingIndex >= 0) {
         const existing = config.channels[matchingIndex];
-        if (existing.baseUrl === baseUrl && (!apiKey || existing.apiKey === apiKey)) {
+        const apiFormat = explicitFormat || existing.apiFormat;
+        if (existing.baseUrl === baseUrl && (!apiKey || existing.apiKey === apiKey) && existing.apiFormat === apiFormat) {
             return { status: "updated", channelName: existing.name, config };
         }
-        const updated = { ...existing, baseUrl, ...(apiKey ? { apiKey } : {}) };
+        const updated = { ...existing, baseUrl, apiFormat, ...(apiKey ? { apiKey } : {}) };
         const channels = config.channels.map((channel, index) => (index === matchingIndex ? updated : channel));
         return { status: "updated", channelName: existing.name, config: { ...config, channels } };
     }
 
     const channel = createModelChannel({
-        name: importedChannelName(baseUrl),
+        name: input.name?.trim().slice(0, 60) || (preset ? channelPresetName(preset, i18n.resolvedLanguage) : importedChannelName(baseUrl)),
         baseUrl,
         apiKey,
-        apiFormat: "openai",
+        apiFormat: explicitFormat || preset?.apiFormat || "openai",
         models: [],
     });
     return { status: "created", channelName: channel.name, config: { ...config, channels: [...config.channels, channel] } };
