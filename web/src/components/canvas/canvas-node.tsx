@@ -879,11 +879,23 @@ function BatchPendingBadge({ node, images }: { node: CanvasNodeData; images: Can
     );
 }
 
-/** 依次找第一张有 ComfyUI 进度的待生成图片。 */
+/** 待生成图片里优先显示正在执行的那张；都在排队时显示排得最靠前的那张。 */
 function BatchPendingProgress({ imageIds, nodeId, theme }: { imageIds: string[]; nodeId: string; theme: NodeContentRendererProps["theme"] }) {
     const progress = useComfyNodeProgress(...imageIds);
-    const active = imageIds.find((id) => getComfyNodeProgress(id)) || imageIds[0];
-    return progress ? <ComfyProgressLine nodeId={nodeId} imageId={active} theme={theme} /> : null;
+    let active: string | undefined;
+    let bestPosition = Infinity;
+    for (const id of imageIds) {
+        const current = getComfyNodeProgress(id);
+        if (current?.phase === "running") {
+            active = id;
+            break;
+        }
+        if (current?.phase === "queued" && current.position < bestPosition) {
+            bestPosition = current.position;
+            active = id;
+        }
+    }
+    return progress && active ? <ComfyProgressLine nodeId={nodeId} imageId={active} theme={theme} /> : null;
 }
 
 function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, onDuplicate, onDownload, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; scale: number; onView: () => void; onSetPrimary: () => void; onDuplicate: () => void; onDownload: () => void; onRetry: () => void; onDelete: () => void }) {
