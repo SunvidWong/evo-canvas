@@ -28,8 +28,14 @@ LOCATIONS_DIR="${NGINX_LOCATIONS_DIR:-/etc/nginx/locations.d}"
 mkdir -p "$LOCATIONS_DIR"
 rm -f "$LOCATIONS_DIR/comfyui.conf"
 COMFYUI_URL_VALUE=$(printf '%s' "${COMFYUI_URL:-}" | sed 's:/*$::')
+# grep 按行匹配，带换行的值可能只有某一行合法；先整体拒绝换行和回车，再校验格式。
+case "$COMFYUI_URL_VALUE" in
+    *"
+"*|*"$(printf '\r')"*) COMFYUI_URL_INVALID=1 ;;
+    *) COMFYUI_URL_INVALID= ;;
+esac
 if [ -n "$COMFYUI_URL_VALUE" ]; then
-    if printf '%s' "$COMFYUI_URL_VALUE" | grep -Eq '^https?://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$'; then
+    if [ -z "$COMFYUI_URL_INVALID" ] && printf '%s' "$COMFYUI_URL_VALUE" | grep -Eq '^https?://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$'; then
         cat > "$LOCATIONS_DIR/comfyui.conf" <<NGINX
 location /comfyui/ {
     proxy_pass ${COMFYUI_URL_VALUE}/;
