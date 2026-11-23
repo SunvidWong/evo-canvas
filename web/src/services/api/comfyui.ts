@@ -597,7 +597,10 @@ function watchComfySocket(config: Pick<AiConfig, "baseUrl" | "apiKey">, clientId
             return;
         }
         const data = message.data || {};
-        if (data.prompt_id && data.prompt_id !== getPromptId()) return;
+        // 每次生成用独立的 client_id，这个 socket 只收到自己任务的消息。队列空时 ComfyUI 会在 /prompt 返回前就开始推送（例如加载模型的节点），
+        // 这时还不知道 prompt_id，不能丢掉，否则加载模型的几十秒里节点只显示「生成中」。
+        const current = getPromptId();
+        if (data.prompt_id && current && data.prompt_id !== current) return;
         if (message.type === "execution_start") onProgress({ phase: "running" });
         if (message.type === "executing" && data.node) {
             node = nodeName(data.node);
