@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import {
     autoComfyInputs,
+    comfyInputChoices,
     COMFY_MAX_REFS_PER_PARAM,
     COMFY_PARAMS,
     comfyPlaceholderParams,
@@ -12,6 +13,7 @@ import {
     fetchComfyObjectInfo,
     fetchComfySavedWorkflow,
     fetchComfySavedWorkflows,
+    listComfyChoiceInputs,
     listComfyInputs,
     listComfyOutputNodes,
     listComfyTunableInputs,
@@ -96,8 +98,13 @@ export function ComfyWorkflowEditor({
     const [convertStage, setConvertStage] = useState<"nodes" | "convert">("convert");
     // 节点定义很大，打开编辑框期间只取一次。
     const objectInfoRef = useRef<ComfyObjectInfo | null>(null);
+    /** 每次打开编辑器换一个编号；上一次打开时还没返回的 /object_info 不再写回（渠道地址可能已经改了）。 */
+    const session = useRef(0);
+    /** 模型、LoRA、采样器的候选值来自节点定义；展开参数面板时才去读。 */
+    const [choiceInfo, setChoiceInfo] = useState<{ loading: boolean; info: ComfyObjectInfo | null; error: string }>({ loading: false, info: null, error: "" });
 
     useEffect(() => {
+        session.current += 1;
         if (!open) return;
         const stored = splitStoredWorkflow(value?.workflow || "");
         setDraft(value ? { ...value, workflow: stored.workflow } : { name: "", capability: "image", workflow: "" });
@@ -107,19 +114,22 @@ export function ComfyWorkflowEditor({
         setHistory(null);
         setSaved(null);
         objectInfoRef.current = null;
+        setChoiceInfo({ loading: false, info: null, error: "" });
     }, [open, value]);
 
     const objectInfo = async () => {
         if (!channel) throw new Error(t("config.comfyWorkflow.convertNeedsChannel"));
-        if (!objectInfoRef.current) {
-            setConvertStage("nodes");
-            try {
-                objectInfoRef.current = await fetchComfyObjectInfo(channel);
-            } finally {
-                setConvertStage("convert");
-            }
+        if (objectInfoRef.current) return objectInfoRef.current;
+        const current = session.current;
+        setConvertStage("nodes");
+        try {
+            const info = await fetchComfyObjectInfo(channel);
+            // 编辑器已经重新打开过时只把结果交给原调用方，不缓存给新的这次用。
+            if (current === session.current) objectInfoRef.current = info;
+            return info;
+        } finally {
+            setConvertStage("convert");
         }
-        return objectInfoRef.current;
     };
 
     /** 把普通保存格式或 API 格式整理成 API 格式填进编辑框，并检查缺少的节点。 */
@@ -175,8 +185,24 @@ export function ComfyWorkflowEditor({
     const inputs = useMemo(() => (parsed ? listComfyInputs(parsed) : []), [parsed]);
     const outputs = useMemo(() => (parsed ? listComfyOutputNodes(parsed) : []), [parsed]);
     const tunables = useMemo(() => (parsed ? listComfyTunableInputs(parsed) : []), [parsed]);
-    const setTunable = (ref: ComfyInputRef, next: number | null) => {
-        if (!parsed || next === null || !Number.isFinite(next)) return;
+    const choices = useMemo(() => (parsed ? listComfyChoiceInputs(parsed) : []), [parsed]);
+    const needChoiceInfo = Boolean(open && showMapping && channel && choices.length);
+    useEffect(() => {
+        if (!needChoiceInfo || choiceInfo.info || choiceInfo.loading || choiceInfo.error) return;
+        const current = session.current;
+        setChoiceInfo({ loading: true, info: null, error: "" });
+        objectInfo()
+            .then((info) => {
+                if (current === session.current) setChoiceInfo({ loading: false, info, error: "" });
+            })
+            .catch((reason: unknown) => {
+                if (current === session.current) setChoiceInfo({ loading: false, info: null, error: reason instanceof Error ? reason.message : String(reason) });
+            });
+        // objectInfo 每次渲染都是新函数，只在需要且还没读过时触发。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [needChoiceInfo, choiceInfo]);
+    const setTunable = (ref: ComfyInputRef, next: number | string | null) => {
+        if (!parsed || next === null || (typeof next === "number" && !Number.isFinite(next))) return;
         setDraft((current) => {
             const updated = setComfyInputValue(parsed, ref, next);
             // 粘贴的导出文件可能带着 { prompt, infinite_canvas } 外壳，只替换里面的工作流，保留映射等设置。
@@ -464,6 +490,42 @@ export function ComfyWorkflowEditor({
                                             ))}
                                         </div>
                                         <div className="mt-1 text-xs leading-5 text-stone-500">{t("config.comfyWorkflow.tunableHint")}</div>
+                                    </div>
+                                ) : null}
+                                {choices.length ? (
+                                    <div data-testid="comfy-choices">
+                                        <div className="mb-1 flex items-center gap-2 text-xs font-medium">
+                                            {t("config.comfyWorkflow.choiceTitle")}
+                                            {choiceInfo.loading ? <Spin size="small" /> : null}
+                                        </div>
+                                        <div className="grid gap-1.5 md:grid-cols-2">
+                                            {choices.map((item) => {
+                                                const list = comfyInputChoices(choiceInfo.info, item.classType, item.input);
+                                                const missing = Boolean(list && !list.includes(String(item.value)));
+                                                return (
+                                                    <label key={item.ref} className="flex flex-col gap-0.5 text-xs">
+                                                        <span className="flex items-center justify-between gap-2">
+                                                            <span className="min-w-0 truncate" title={inputLabel(item.ref)}>
+                                                                {inputLabel(item.ref)}
+                                                            </span>
+                                                            <Select
+                                                                size="small"
+                                                                showSearch
+                                                                className="!w-56 shrink-0"
+                                                                popupMatchSelectWidth={false}
+                                                                data-testid={`comfy-choice-${item.ref}`}
+                                                                status={missing ? "error" : undefined}
+                                                                value={String(item.value)}
+                                                                options={(list || [String(item.value)]).map((option) => ({ value: option, label: option }))}
+                                                                onChange={(next: string) => setTunable(item.ref, next)}
+                                                            />
+                                                        </span>
+                                                        {missing ? <span className="text-red-500">{t("config.comfyWorkflow.choiceMissing")}</span> : null}
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-1 text-xs leading-5 text-stone-500">{choiceInfo.error ? t("config.comfyWorkflow.choiceLoadFailed", { error: choiceInfo.error }) : channel ? t("config.comfyWorkflow.choiceHint") : t("config.comfyWorkflow.convertNeedsChannel")}</div>
                                     </div>
                                 ) : null}
                                 <div>
