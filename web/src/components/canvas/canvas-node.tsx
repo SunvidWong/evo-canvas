@@ -1,4 +1,4 @@
-import { useComfyNodeProgress } from "@/lib/comfy-progress";
+import { getComfyNodeProgress, useComfyNodeProgress } from "@/lib/comfy-progress";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { ChevronRight, Copy, Download, Group, Image as ImageIcon, Music2, Puzzle, RefreshCw, Star, Trash2, Video } from "lucide-react";
@@ -832,6 +832,7 @@ function ImageContent({
                     <ImageSlotStatus image={primaryImage} nodeId={node.id} />
                 )}
             </div>
+            {primaryContent ? <BatchPendingBadge node={node} images={images} /> : null}
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {primaryImage?.content ? (
                 <button type="button" className="pointer-events-none absolute left-2.5 top-2.5 z-30 flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-medium opacity-0 shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md transition hover:scale-[1.02] group-hover/node:pointer-events-auto group-hover/node:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.activeText }} title={t("common.download")} onClick={(event) => (event.stopPropagation(), onDownloadBatchImage?.(primaryImage.id))}>
@@ -858,6 +859,31 @@ function ImageContent({
             ) : null}
         </BatchFrame>
     );
+}
+
+/** 批量生成时主图已回来、其余图片还在跑：在主图底部显示剩余进度，避免节点看起来已经结束。 */
+function BatchPendingBadge({ node, images }: { node: CanvasNodeData; images: CanvasNodeImage[] }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const { t } = useTranslation();
+    const pending = images.filter((image) => image.status === "loading" && !image.content);
+    if (!pending.length || node.metadata?.status !== "loading") return null;
+    const done = images.filter((image) => image.content).length;
+    return (
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-30 flex flex-col items-center gap-1.5 rounded-xl border px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,.16)] backdrop-blur-md" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.activeStroke }} data-testid="batch-pending">
+            <div className="flex items-center gap-2">
+                <div className="size-3.5 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
+                <span className="text-[11px] font-medium">{t("canvas.node.batchPending", { done, total: images.length })}</span>
+            </div>
+            <BatchPendingProgress imageIds={pending.map((image) => image.id)} nodeId={node.id} theme={theme} />
+        </div>
+    );
+}
+
+/** 依次找第一张有 ComfyUI 进度的待生成图片。 */
+function BatchPendingProgress({ imageIds, nodeId, theme }: { imageIds: string[]; nodeId: string; theme: NodeContentRendererProps["theme"] }) {
+    const progress = useComfyNodeProgress(...imageIds);
+    const active = imageIds.find((id) => getComfyNodeProgress(id)) || imageIds[0];
+    return progress ? <ComfyProgressLine nodeId={nodeId} imageId={active} theme={theme} /> : null;
 }
 
 function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, onDuplicate, onDownload, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; scale: number; onView: () => void; onSetPrimary: () => void; onDuplicate: () => void; onDownload: () => void; onRetry: () => void; onDelete: () => void }) {
