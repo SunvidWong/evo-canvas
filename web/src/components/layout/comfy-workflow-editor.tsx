@@ -98,10 +98,13 @@ export function ComfyWorkflowEditor({
     const [convertStage, setConvertStage] = useState<"nodes" | "convert">("convert");
     // 节点定义很大，打开编辑框期间只取一次。
     const objectInfoRef = useRef<ComfyObjectInfo | null>(null);
+    /** 每次打开编辑器换一个编号；上一次打开时还没返回的 /object_info 不再写回（渠道地址可能已经改了）。 */
+    const session = useRef(0);
     /** 模型、LoRA、采样器的候选值来自节点定义；展开参数面板时才去读。 */
     const [choiceInfo, setChoiceInfo] = useState<{ loading: boolean; info: ComfyObjectInfo | null; error: string }>({ loading: false, info: null, error: "" });
 
     useEffect(() => {
+        session.current += 1;
         if (!open) return;
         const stored = splitStoredWorkflow(value?.workflow || "");
         setDraft(value ? { ...value, workflow: stored.workflow } : { name: "", capability: "image", workflow: "" });
@@ -116,15 +119,17 @@ export function ComfyWorkflowEditor({
 
     const objectInfo = async () => {
         if (!channel) throw new Error(t("config.comfyWorkflow.convertNeedsChannel"));
-        if (!objectInfoRef.current) {
-            setConvertStage("nodes");
-            try {
-                objectInfoRef.current = await fetchComfyObjectInfo(channel);
-            } finally {
-                setConvertStage("convert");
-            }
+        if (objectInfoRef.current) return objectInfoRef.current;
+        const current = session.current;
+        setConvertStage("nodes");
+        try {
+            const info = await fetchComfyObjectInfo(channel);
+            // 编辑器已经重新打开过时只把结果交给原调用方，不缓存给新的这次用。
+            if (current === session.current) objectInfoRef.current = info;
+            return info;
+        } finally {
+            setConvertStage("convert");
         }
-        return objectInfoRef.current;
     };
 
     /** 把普通保存格式或 API 格式整理成 API 格式填进编辑框，并检查缺少的节点。 */
@@ -184,10 +189,15 @@ export function ComfyWorkflowEditor({
     const needChoiceInfo = Boolean(open && showMapping && channel && choices.length);
     useEffect(() => {
         if (!needChoiceInfo || choiceInfo.info || choiceInfo.loading || choiceInfo.error) return;
+        const current = session.current;
         setChoiceInfo({ loading: true, info: null, error: "" });
         objectInfo()
-            .then((info) => setChoiceInfo({ loading: false, info, error: "" }))
-            .catch((reason: unknown) => setChoiceInfo({ loading: false, info: null, error: reason instanceof Error ? reason.message : String(reason) }));
+            .then((info) => {
+                if (current === session.current) setChoiceInfo({ loading: false, info, error: "" });
+            })
+            .catch((reason: unknown) => {
+                if (current === session.current) setChoiceInfo({ loading: false, info: null, error: reason instanceof Error ? reason.message : String(reason) });
+            });
         // objectInfo 每次渲染都是新函数，只在需要且还没读过时触发。
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [needChoiceInfo, choiceInfo]);
