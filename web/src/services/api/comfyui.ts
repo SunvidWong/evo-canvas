@@ -1,3 +1,4 @@
+import { message } from "antd";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
@@ -360,11 +361,17 @@ export function comfyExecutionErrorMessage(failure: { node_id?: string; node_typ
     return apiText("comfyExecutionFailed", { node: label, detail: detail.slice(0, 500) });
 }
 
+/** 参考图上传到 ComfyUI input 目录下的这个子目录。 */
+export const COMFY_UPLOAD_SUBFOLDER = "infinite-canvas";
+
 /** 把参考图上传到 ComfyUI 的 input 目录，返回工作流里 LoadImage 可用的文件名。 */
 export async function uploadComfyImage(config: Pick<AiConfig, "baseUrl" | "apiKey">, dataUrl: string, options?: RequestOptions) {
     const file = dataUrlToFile({ id: nanoid(), name: "reference", type: "", dataUrl });
     const form = new FormData();
     form.append("image", file, `canvas-${nanoid(8)}.${(file.type.split("/")[1] || "png").replace("jpeg", "jpg")}`);
+    // 放进单独的子目录，避免和用户自己放在 input 里的图片重名。
+    form.append("subfolder", COMFY_UPLOAD_SUBFOLDER);
+    form.append("type", "input");
     form.append("overwrite", "true");
     const result = await comfyFetch<{ name?: string; subfolder?: string }>(config, "/upload/image", { method: "POST", body: form, signal: options?.signal });
     if (!result?.name) throw new Error(apiText("requestFailed"));
@@ -519,11 +526,32 @@ async function comfyImageFile(config: Pick<AiConfig, "baseUrl" | "apiKey">, file
     return new File([blob], file.filename, { type });
 }
 
+/** 工作流能接收几张参考图：写了 {{image}}、{{image2}}… 时按最大序号算，否则按映射或自动识别的 LoadImage 个数。 */
+export function comfyImageSlots(workflow: ComfyWorkflow, settings: ComfyCanvasSettings = {}) {
+    const indexes = Array.from(JSON.stringify(workflow).matchAll(PLACEHOLDER), (match) => match[1].match(/^image(\d*)$/)?.[1]).filter((value): value is string => value !== undefined);
+    if (indexes.length) return Math.max(...indexes.map((value) => Number(value || 1)));
+    return (settings.mapping?.image?.length ? settings.mapping.image : autoComfyInputs(workflow).image || []).length;
+}
+
+/** 生成不中断，只在页面上提示一下；没有页面（例如测试环境）时跳过。 */
+function notifyWarning(text: string) {
+    if (typeof document === "undefined") return;
+    void message.warning(text);
+}
+
+/** 只上传工作流用得上的参考图；多出来的不上传，并提示只用了前几张。 */
+async function uploadComfyReferences(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflow: ComfyWorkflow, settings: ComfyCanvasSettings, references: string[] = [], options?: RequestOptions) {
+    if (!references.length) return [];
+    const slots = comfyImageSlots(workflow, settings);
+    if (references.length > slots) notifyWarning(slots ? apiText("comfyExtraReferences", { used: slots, total: references.length }) : apiText("comfyNoReferenceInput", { total: references.length }));
+    return Promise.all(references.slice(0, slots).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
+}
+
 /** 用工作流生成图片，返回 data URL 列表。 */
 export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
     const workflow = parseComfyWorkflow(workflowText);
     const settings = parseComfySettings(workflowText);
-    const images = await Promise.all((vars.references || []).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
+    const images = await uploadComfyReferences(config, workflow, settings, vars.references, options);
     const files = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).filter((file) => file.kind === "image");
     if (!files.length) throw new Error(apiText("comfyNoOutput"));
     return Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options))));
@@ -533,7 +561,7 @@ export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "ap
 export async function generateComfyVideo(config: Pick<AiConfig, "baseUrl" | "apiKey">, workflowText: string, vars: Omit<ComfyVariables, "images"> & { references?: string[] }, options?: RequestOptions) {
     const workflow = parseComfyWorkflow(workflowText);
     const settings = parseComfySettings(workflowText);
-    const images = await Promise.all((vars.references || []).map((dataUrl) => uploadComfyImage(config, dataUrl, options)));
+    const images = await uploadComfyReferences(config, workflow, settings, vars.references, options);
     const file = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).find((item) => item.kind === "video");
     if (!file) throw new Error(apiText("comfyNoOutput"));
     return fetchComfyFile(config, file, options);
