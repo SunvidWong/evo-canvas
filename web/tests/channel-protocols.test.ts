@@ -180,13 +180,9 @@ describe("ComfyUI 工作流", () => {
     });
 
     test("手动映射优先于自动识别，占位符优先于手动映射", () => {
-        const result = buildComfyWorkflow(
-            workflow,
-            { prompt: "cat", negativePrompt: "ugly", width: 800, seed: 7, images: ["a.png"] },
-            { mapping: { prompt: ["7.text"], negative_prompt: ["6.text"], seed: ["3.seed", "3.steps"], width: ["missing.width", "3.positive"] } },
-        );
+        const result = buildComfyWorkflow(workflow, { prompt: "cat", width: 800, seed: 7, images: ["a.png"] }, { mapping: { prompt: ["7.text"], seed: ["3.seed", "3.steps"], width: ["missing.width", "3.positive"] } });
         expect(result["7"].inputs?.text).toBe("cat");
-        expect(result["6"].inputs?.text).toBe("ugly");
+        expect(result["6"].inputs?.text).toBe("old prompt");
         expect(result["3"].inputs?.seed).toBe(7);
         expect(result["3"].inputs?.steps).toBe(7);
         // 不存在的节点和连线输入都跳过，宽度只按映射填，不再自动填 Latent。
@@ -226,6 +222,8 @@ describe("ComfyUI 工作流", () => {
         const outputs = { "9": { images: [{ filename: "final.png", type: "output" }] }, "15": { images: [{ filename: "mid.png", type: "output" }] } };
         expect(collectComfyOutputs(outputs, ["9"]).map((file) => file.filename)).toEqual(["final.png"]);
         expect(collectComfyOutputs(outputs, ["99"]).map((file) => file.filename)).toEqual(["final.png", "mid.png"]);
+        // 选中的节点只有文本之类的非文件输出时，也退回全部输出。
+        expect(collectComfyOutputs({ ...outputs, "20": { text: ["done"] } }, ["20"]).map((file) => file.filename)).toEqual(["final.png", "mid.png"]);
     });
 
     test("生成时按保存的映射提交，并只从选中的输出节点取视频", async () => {

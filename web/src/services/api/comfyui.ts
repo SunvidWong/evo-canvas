@@ -105,7 +105,8 @@ function positivePromptNode(workflow: ComfyWorkflow) {
 }
 
 /** 画布能填进工作流的参数；image 按顺序对应第 1、2… 张参考图。 */
-export const COMFY_PARAMS = ["prompt", "negative_prompt", "width", "height", "count", "seed", "seconds", "image"] as const;
+// 画布目前没有反向提示词输入，所以不提供映射；工作流里仍可写 {{negative_prompt}} 占位符（替换为空）。
+export const COMFY_PARAMS = ["prompt", "width", "height", "count", "seed", "seconds", "image"] as const;
 export type ComfyParam = (typeof COMFY_PARAMS)[number];
 /** 工作流里一个节点参数，写成「节点 id.参数名」，例如 "6.text"。 */
 export type ComfyInputRef = string;
@@ -116,8 +117,8 @@ export type ComfyOutputNode = { nodeId: string; classType: string; title?: strin
 
 /** 设置和工作流存在一起：{ "prompt": 工作流, "infinite_canvas": 设置 }。 */
 const SETTINGS_KEY = "infinite_canvas";
-/** 每个参数最多映射到几个节点参数，防止异常数据撑大配置。 */
-const MAX_REFS_PER_PARAM = 16;
+/** 每个参数最多映射到几个节点参数；编辑器里同样限制，防止异常数据撑大配置。 */
+export const COMFY_MAX_REFS_PER_PARAM = 16;
 const OUTPUT_CLASS = /^(Save|Preview)|VideoCombine|SaveVideo|SaveWEBM|SaveAnimated|CreateVideo/i;
 const AUDIO_OUTPUT_CLASS = /Audio/i;
 
@@ -128,7 +129,7 @@ function splitRef(ref: string): [string, string] | null {
 
 function cleanRefs(value: unknown) {
     if (!Array.isArray(value)) return [];
-    return Array.from(new Set(value.filter((ref): ref is string => typeof ref === "string" && Boolean(splitRef(ref))))).slice(0, MAX_REFS_PER_PARAM);
+    return Array.from(new Set(value.filter((ref): ref is string => typeof ref === "string" && Boolean(splitRef(ref))))).slice(0, COMFY_MAX_REFS_PER_PARAM);
 }
 
 /** 读出工作流 JSON 里画布的设置；没有或格式不对时返回空对象。 */
@@ -239,8 +240,8 @@ export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables
             refs.forEach((ref) => setInput(result, ref, manual || vars.seed !== undefined ? seed : Math.floor(Math.random() * MAX_SEED)));
             continue;
         }
-        const value = { prompt: vars.prompt, negative_prompt: vars.negativePrompt, width: vars.width, height: vars.height, count: vars.count, seconds: vars.seconds }[param];
-        if (value === undefined || value === "" || (param !== "prompt" && param !== "negative_prompt" && !value)) continue;
+        const value = { prompt: vars.prompt, width: vars.width, height: vars.height, count: vars.count, seconds: vars.seconds }[param];
+        if (value === undefined || value === "" || (param !== "prompt" && !value)) continue;
         refs.forEach((ref) => setInput(result, ref, value));
     }
     return result;
@@ -252,8 +253,10 @@ const AUDIO_EXT = /\.(mp3|wav|flac|ogg|m4a)$/i;
 /** 从 /history 的 outputs 里收集生成的文件；有正式输出时忽略预览用的临时文件。 */
 export function collectComfyOutputs(outputs: Record<string, Record<string, unknown>> = {}, outputNodes: string[] = []): ComfyOutputFile[] {
     // 选了输出节点时只取这些节点的结果；它们都没产出时退回全部输出，避免节点改名后直接失败。
-    const chosen = outputNodes.length ? Object.entries(outputs).filter(([id]) => outputNodes.includes(id)) : [];
-    if (chosen.length && chosen.some(([, output]) => Object.values(output || {}).some((list) => Array.isArray(list) && list.length))) return collectComfyOutputs(Object.fromEntries(chosen));
+    if (outputNodes.length) {
+        const chosen = collectComfyOutputs(Object.fromEntries(Object.entries(outputs).filter(([id]) => outputNodes.includes(id))));
+        if (chosen.length) return chosen;
+    }
     const files: ComfyOutputFile[] = [];
     for (const output of Object.values(outputs)) {
         for (const [key, list] of Object.entries(output || {})) {

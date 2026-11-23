@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import {
     autoComfyInputs,
+    COMFY_MAX_REFS_PER_PARAM,
     COMFY_PARAMS,
     comfyPlaceholderParams,
     fetchComfyHistoryWorkflows,
@@ -245,6 +246,7 @@ export function ComfyWorkflowEditor({
                                                 <Select
                                                     size="small"
                                                     mode="multiple"
+                                                    maxCount={COMFY_MAX_REFS_PER_PARAM}
                                                     allowClear
                                                     showSearch
                                                     optionFilterProp="label"
