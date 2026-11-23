@@ -8,7 +8,7 @@ import { getMediaBlob, resolveMediaUrl, uploadMediaFile, type UploadedFile } fro
 import { imageToDataUrl } from "@/services/image-storage";
 import { apiFormatName, boolConfig, buildApiUrl, channelNeedsApiKey, resolveModelWorkflow, modelOptionName, resolveModelRequestConfig, resolveModelScript, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
-import { generateComfyVideo } from "./comfyui";
+import { generateComfyVideo, parseComfyOverrides } from "./comfyui";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -135,7 +135,7 @@ async function createComfyVideoTask(config: AiConfig, model: string, workflow: s
     const size = normalizeVideoSize(config.size, config.vquality);
     const [width, height] = size ? size.split("x").map(Number) : [];
     const refs = await Promise.all(references.map((image) => imageToDataUrl(image)));
-    const blob = await generateComfyVideo(config, workflow, { prompt, width: width || undefined, height: height || undefined, seconds: Number(normalizeVideoSeconds(config.videoSeconds)) || undefined, references: refs }, options);
+    const blob = await generateComfyVideo(config, workflow, { prompt, width: width || undefined, height: height || undefined, seconds: Number(normalizeVideoSeconds(config.videoSeconds)) || undefined, references: refs, ...parseComfyOverrides(config) }, options);
     const id = nanoid();
     pluginVideoResults.set(id, { blob });
     return { id, provider: "plugin", model };
