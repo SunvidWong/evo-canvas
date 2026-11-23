@@ -285,7 +285,7 @@ function delay(ms: number, signal?: AbortSignal) {
     });
 }
 
-async function comfyFetch<T>(config: Pick<AiConfig, "baseUrl" | "apiKey">, path: string, init: RequestInit = {}): Promise<T> {
+async function comfyFetch<T>(config: Pick<AiConfig, "baseUrl" | "apiKey">, path: string, init: RequestInit = {}, workflow?: ComfyWorkflow): Promise<T> {
     let response: Response;
     try {
         response = await fetch(comfyUrl(config, path), { ...init, headers: { ...comfyHeaders(config), ...(init.headers || {}) } });
@@ -300,16 +300,62 @@ async function comfyFetch<T>(config: Pick<AiConfig, "baseUrl" | "apiKey">, path:
     } catch {
         payload = undefined;
     }
-    if (!response.ok) throw new Error(comfyErrorMessage(payload) || text.slice(0, 300) || apiText("httpFailed", { status: response.status }));
+    if (!response.ok) throw new Error(comfyErrorMessage(payload, workflow) || text.slice(0, 300) || apiText("httpFailed", { status: response.status }));
     return payload as T;
 }
 
-function comfyErrorMessage(payload: unknown) {
+type ComfyNodeError = { type?: string; message?: string; details?: string; extra_info?: { input_name?: string; received_value?: unknown } };
+
+/** 错误里显示的节点名：优先用工作流里的标题，其次节点类型，最后节点 id。 */
+function comfyNodeLabel(id: string | undefined, classType: string | undefined, workflow?: ComfyWorkflow) {
+    const node = id ? workflow?.[id] : undefined;
+    const name = node?._meta?.title || classType || node?.class_type || "";
+    return id ? (name ? apiText("comfyNodeLabel", { name, id }) : `#${id}`) : name || "ComfyUI";
+}
+
+const MODEL_FILE = /\.(safetensors|ckpt|pt|pth|bin|gguf|onnx|sft)$/i;
+const MISSING_NODE = /node\s+(\S+?)\s+does not exist/i;
+
+/** 把 ComfyUI 校验错误翻成用户能看懂的原因，原文附在后面方便排查。 */
+function comfyNodeErrorReason(error: ComfyNodeError) {
+    const input = error.extra_info?.input_name || error.details?.match(/^(\w+)/)?.[1] || "";
+    const received = error.extra_info?.received_value ?? error.details?.match(/'([^']*)'\s+not in/)?.[1];
+    const raw = [error.message, error.details].filter(Boolean).join(": ");
+    if (error.type === "value_not_in_list") {
+        const value = String(received ?? "");
+        return value && MODEL_FILE.test(value) ? apiText("comfyMissingModel", { file: value, input }) : apiText("comfyValueNotInList", { value, input });
+    }
+    if (error.type === "required_input_missing") return apiText("comfyInputMissing", { input });
+    if (error.type === "value_bigger_than_max" || error.type === "value_smaller_than_min") return apiText("comfyValueOutOfRange", { input, detail: raw });
+    return raw || error.type || "";
+}
+
+/** 整理 /prompt 返回的错误：总体原因 + 每个出错节点一行「节点名：原因」。 */
+export function comfyErrorMessage(payload: unknown, workflow?: ComfyWorkflow) {
     if (!payload || typeof payload !== "object") return "";
-    const record = payload as { error?: { message?: string; details?: string } | string; node_errors?: Record<string, { errors?: Array<{ message?: string; details?: string }>; class_type?: string }> };
-    const nodeErrors = Object.entries(record.node_errors || {}).flatMap(([id, item]) => (item.errors || []).map((error) => `#${id} ${item.class_type || ""}: ${error.message || ""}${error.details ? ` (${error.details})` : ""}`.trim()));
-    const main = typeof record.error === "string" ? record.error : [record.error?.message, record.error?.details].filter(Boolean).join(": ");
+    const record = payload as { error?: ComfyNodeError | string; node_errors?: Record<string, { errors?: ComfyNodeError[]; class_type?: string }> };
+    const nodeErrors = Object.entries(record.node_errors || {}).flatMap(([id, item]) => (item.errors || []).map((error) => apiText("comfyNodeError", { node: comfyNodeLabel(id, item.class_type, workflow), reason: comfyNodeErrorReason(error) })));
+    const error = typeof record.error === "string" ? { message: record.error } : record.error;
+    const missingNode = [error?.message, error?.details].join(" ").match(MISSING_NODE)?.[1];
+    const main = missingNode
+        ? apiText("comfyMissingNodeType", { node: missingNode.replace(/^#/, "") })
+        : error?.type === "prompt_outputs_failed_validation"
+          ? apiText("comfyValidationFailed")
+          : error?.type === "prompt_no_outputs"
+            ? apiText("comfyNoOutputNode")
+            : [error?.message, error?.details].filter(Boolean).join(": ");
     return [main, ...nodeErrors].filter(Boolean).join("\n");
+}
+
+const OUT_OF_MEMORY = /out of memory|OutOfMemory|Allocation on device/i;
+
+/** 整理执行失败的 execution_error：哪个节点出错、原因；显存不足时给出处理建议。 */
+export function comfyExecutionErrorMessage(failure: { node_id?: string; node_type?: string; exception_type?: string; exception_message?: string } | undefined, workflow?: ComfyWorkflow) {
+    if (!failure) return apiText("requestFailed");
+    const label = comfyNodeLabel(failure.node_id, failure.node_type, workflow);
+    const detail = (failure.exception_message || failure.exception_type || "").trim();
+    if (OUT_OF_MEMORY.test(`${failure.exception_type || ""} ${detail}`)) return apiText("comfyOutOfMemory", { node: label });
+    return apiText("comfyExecutionFailed", { node: label, detail: detail.slice(0, 500) });
 }
 
 /** 把参考图上传到 ComfyUI 的 input 目录，返回工作流里 LoadImage 可用的文件名。 */
@@ -417,9 +463,9 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt: workflow, client_id: clientId }),
             signal: options?.signal,
-        });
+        }, workflow);
         promptId = queued?.prompt_id;
-        if (!promptId) throw new Error(comfyErrorMessage(queued) || apiText("requestFailed"));
+        if (!promptId) throw new Error(comfyErrorMessage(queued, workflow) || apiText("requestFailed"));
         try {
             for (;;) {
                 // 开始执行前顺便查一下排队位置；查询失败不影响等待结果。
@@ -437,8 +483,8 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
                 const entry = history?.[promptId];
                 if (!entry) continue;
                 if (entry.status?.status_str === "error") {
-                    const failure = entry.status.messages?.find(([type]) => type === "execution_error")?.[1] as { exception_message?: string; node_type?: string } | undefined;
-                    throw new Error(failure ? `${failure.node_type || "ComfyUI"}: ${failure.exception_message || ""}`.trim() : apiText("requestFailed"));
+                    const failure = entry.status.messages?.find(([type]) => type === "execution_error")?.[1] as Parameters<typeof comfyExecutionErrorMessage>[0];
+                    throw new Error(comfyExecutionErrorMessage(failure, workflow));
                 }
                 if (entry.status?.completed === false) continue;
                 const files = collectComfyOutputs(entry.outputs, options?.outputNodes);
