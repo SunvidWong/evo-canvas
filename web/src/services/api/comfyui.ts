@@ -2,7 +2,7 @@ import { message } from "antd";
 import { nanoid } from "nanoid";
 
 import i18n from "@/i18n";
-import { clearComfyProgress, setComfyProgress, type ComfyProgress } from "@/lib/comfy-progress";
+import { clearComfyProgress, setComfyPreview, setComfyProgress, type ComfyProgress } from "@/lib/comfy-progress";
 import { dataUrlToFile, readFileAsDataUrl } from "@/lib/image-utils";
 import { withLocalProxy, type AiConfig } from "@/stores/use-config-store";
 
@@ -536,8 +536,38 @@ export function comfySocketUrl(config: Pick<AiConfig, "baseUrl">, clientId: stri
     }
 }
 
+const PREVIEW_FORMATS: Record<number, string> = { 1: "image/jpeg", 2: "image/png", 3: "image/webp" };
+
+/**
+ * 解析 ComfyUI WebSocket 发来的二进制预览帧（需要 ComfyUI 启动时开启 --preview-method）。
+ * 类型 1：4 字节事件类型 + 4 字节格式（1 JPEG、2 PNG）+ 图片。
+ * 类型 4（新版）：4 字节事件类型 + 4 字节元数据长度 + JSON 元数据 + 图片；元数据里的 prompt_id 不是当前任务时忽略。
+ * 每次生成用独立的 client_id，所以类型 1 的帧都属于当前任务。
+ */
+export function parseComfyPreviewFrame(buffer: ArrayBuffer, promptId?: string): { type: string; data: Uint8Array<ArrayBuffer> } | undefined {
+    if (buffer.byteLength <= 8) return undefined;
+    const view = new DataView(buffer);
+    const event = view.getUint32(0);
+    if (event === 1) {
+        const type = PREVIEW_FORMATS[view.getUint32(4)];
+        return type ? { type, data: new Uint8Array(buffer, 8) } : undefined;
+    }
+    if (event !== 4) return undefined;
+    const length = view.getUint32(4);
+    if (8 + length >= buffer.byteLength) return undefined;
+    let meta: { image_type?: unknown; prompt_id?: unknown };
+    try {
+        meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 8, length)));
+    } catch {
+        return undefined;
+    }
+    if (promptId && typeof meta.prompt_id === "string" && meta.prompt_id !== promptId) return undefined;
+    const type = typeof meta.image_type === "string" && meta.image_type.startsWith("image/") ? meta.image_type : "image/jpeg";
+    return { type, data: new Uint8Array(buffer, 8 + length) };
+}
+
 /** 订阅 ComfyUI 的执行进度；连不上（例如需要鉴权或代理不支持 WebSocket）时静默退回轮询。 */
-function watchComfySocket(config: Pick<AiConfig, "baseUrl" | "apiKey">, clientId: string, workflow: ComfyWorkflow, getPromptId: () => string | undefined, onProgress: (progress: ComfyProgress) => void) {
+function watchComfySocket(config: Pick<AiConfig, "baseUrl" | "apiKey">, clientId: string, workflow: ComfyWorkflow, getPromptId: () => string | undefined, onProgress: (progress: ComfyProgress) => void, onPreview: (image: Blob) => void) {
     const url = typeof WebSocket === "undefined" ? "" : comfySocketUrl(config, clientId);
     if (!url) return () => undefined;
     let socket: WebSocket;
@@ -546,9 +576,15 @@ function watchComfySocket(config: Pick<AiConfig, "baseUrl" | "apiKey">, clientId
     } catch {
         return () => undefined;
     }
+    socket.binaryType = "arraybuffer";
     const nodeName = (id: unknown) => (typeof id === "string" && workflow[id] ? workflow[id]._meta?.title || workflow[id].class_type || id : undefined);
     let node: string | undefined;
     socket.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+            const frame = parseComfyPreviewFrame(event.data, getPromptId());
+            if (frame) onPreview(new Blob([frame.data], { type: frame.type }));
+            return;
+        }
         if (typeof event.data !== "string") return;
         let message: { type?: string; data?: { prompt_id?: string; node?: unknown; value?: unknown; max?: unknown } };
         try {
@@ -600,7 +636,7 @@ export async function runComfyWorkflow(config: Pick<AiConfig, "baseUrl" | "apiKe
         options?.onProgress?.(progress);
         setComfyProgress(options?.signal, clientId, progress);
     };
-    const stopSocket = watchComfySocket(config, clientId, workflow, () => promptId, report);
+    const stopSocket = watchComfySocket(config, clientId, workflow, () => promptId, report, (image) => setComfyPreview(options?.signal, clientId, image));
     try {
         const queued = await comfyFetch<{ prompt_id?: string; error?: unknown; node_errors?: Record<string, unknown> }>(config, "/prompt", {
             method: "POST",
