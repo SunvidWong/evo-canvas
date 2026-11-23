@@ -33,9 +33,11 @@ type ImageSettingsPanelProps = {
     className?: string;
     maxCount?: number;
     quickCount?: number;
+    /** 当前选中的生图模型；不传时用 config.model（画布节点的配置里就是节点模型）。 */
+    model?: string;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10, model }: ImageSettingsPanelProps) {
     const { t } = useTranslation();
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
     const quality = config.quality || "auto";
@@ -145,7 +147,7 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <CountInput value={count} max={maxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
                     </div>
                 </div>
-                {isComfyModel(config, config.model) ? <ComfyOverrides config={config} theme={theme} onConfigChange={onConfigChange} /> : null}
+                {isComfyModel(config, model ?? config.model) ? <ComfyOverrides config={config} theme={theme} onConfigChange={onConfigChange} /> : null}
             </div>
         </ImageSettingsTheme>
     );
