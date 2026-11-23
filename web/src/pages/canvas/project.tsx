@@ -2040,11 +2040,11 @@ function InfiniteCanvasPage() {
             const userPrompt = payload.prompt.trim();
             const prompt = t("canvas.projectPage.maskPrompt", { source: imageReferenceLabel(0), mask: imageReferenceLabel(1), prompt: userPrompt });
             setMaskEditNodeId(null);
+            // 蓝色标注图只作为非蒙版模型的参考图存进元数据，不再放到画布上（ComfyUI 用纯蒙版，用不到它）。
             const maskImage = await uploadImage(payload.maskDataUrl);
-            const maskNodeId = nanoid();
             const childId = nanoid();
             const source = { id: node.id, name: `${node.title || node.id}.png`, type: node.metadata.mimeType || "image/png", dataUrl: node.metadata.content, storageKey: node.metadata.storageKey };
-            const maskSource = { id: maskNodeId, name: "mask.png", type: maskImage.mimeType || "image/png", dataUrl: maskImage.url, storageKey: maskImage.storageKey };
+            const maskSource = { id: `${childId}-mask`, name: "mask.png", type: maskImage.mimeType || "image/png", dataUrl: maskImage.url, storageKey: maskImage.storageKey };
             const references = [source, maskSource];
             const inpaintMaskImage = payload.inpaintMaskDataUrl ? await uploadImage(payload.inpaintMaskDataUrl) : null;
             const inpaintMaskRef = inpaintMaskImage ? inpaintMaskImage.storageKey || inpaintMaskImage.url : undefined;
@@ -2052,18 +2052,10 @@ function InfiniteCanvasPage() {
                 ...buildImageGenerationMetadata("edit", generationConfig, 1, references),
                 ...(inpaintMaskRef ? { inpaintMask: inpaintMaskRef, inpaintPrompt: userPrompt } : {}),
             };
-            const childMetadata = payload.generate ? { prompt, status: NODE_STATUS_LOADING, ...generationMetadata } : { prompt };
+            // 节点上只记用户的原话；发给非蒙版模型的长提示词在生成和重试时按原话重新拼。
+            const childMetadata = payload.generate ? { prompt: userPrompt, status: NODE_STATUS_LOADING, ...generationMetadata } : { prompt: userPrompt, ...generationMetadata };
             setNodes((prev) => [
                 ...prev,
-                {
-                    id: maskNodeId,
-                    type: CanvasNodeType.Image,
-                    title: t("canvas.projectPage.maskNodeTitle"),
-                    position: { x: node.position.x, y: node.position.y + node.height + 96 },
-                    width: node.width,
-                    height: node.height,
-                    metadata: imageMetadata(maskImage),
-                },
                 {
                     id: childId,
                     type: CanvasNodeType.Image,
@@ -2074,11 +2066,7 @@ function InfiniteCanvasPage() {
                     metadata: childMetadata,
                 },
             ]);
-            setConnections((prev) => [
-                ...prev,
-                { id: nanoid(), fromNodeId: node.id, toNodeId: childId },
-                { id: nanoid(), fromNodeId: maskNodeId, toNodeId: childId },
-            ]);
+            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
             setSelectedNodeIds(new Set([childId]));
             setSelectedConnectionId(null);
             setDialogNodeId(childId);
@@ -2090,7 +2078,7 @@ function InfiniteCanvasPage() {
                 const image = await requestEdit(generationConfig, prompt, references, { signal: controller.signal, inpaint }).then((items) => items[0]);
                 const uploaded = await uploadImage(image.dataUrl, { signal: controller.signal });
                 const size = fitNodeSize(uploaded.width, uploaded.height, node.width, node.height);
-                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt, ...generationMetadata } } : item)));
+                setNodes((prev) => prev.map((item) => (item.id === childId ? { ...item, width: size.width, height: size.height, metadata: { ...item.metadata, ...imageMetadata(uploaded), prompt: userPrompt, ...generationMetadata } } : item)));
             } catch (error) {
                 if (isGenerationCanceled(error)) return;
                 const errorDetails = error instanceof Error ? error.message : t("canvas.projectPage.maskFailed");
@@ -2443,10 +2431,19 @@ function InfiniteCanvasPage() {
                         isImageNode && sourceNode?.metadata?.content && !overwriteExisting
                             ? [{ id: sourceNode.id, name: `${sourceNode.title || sourceNode.id}.png`, type: sourceNode.metadata.mimeType || "image/png", dataUrl: sourceNode.metadata.content, storageKey: sourceNode.metadata.storageKey }]
                             : [];
+                    // 局部重绘的结果节点再生成：沿用当时的原图、标注图和蒙版，只换提示词。
+                    const inpaintSource = isImageNode && sourceNode?.metadata?.inpaintMask && sourceNode.metadata.generationType === "edit" ? sourceNode.metadata : undefined;
+                    const inpaintReferences = inpaintSource ? await resolveMetadataReferences(inpaintSource) : null;
+                    const inpaint = inpaintSource && inpaintReferences ? await resolveInpaintOptions({ ...inpaintSource, inpaintPrompt: effectivePrompt }, runController.signal) : undefined;
+                    if (inpaintSource && !inpaint) message.warning(t("canvas.projectPage.inpaintMaskMissing"));
+                    const requestPrompt = inpaint ? t("canvas.projectPage.maskPrompt", { source: imageReferenceLabel(0), mask: imageReferenceLabel(1), prompt: effectivePrompt }) : effectivePrompt;
                     // 用户在参考区看到、在提示词里用「图N」点名的上游图排在前面，目标节点自己的图放最后，序号才能对上。
-                    const referenceImages = [...new Map([...generationContext.referenceImages, ...sourceReference].map((image) => [image.id, image])).values()];
+                    const referenceImages = inpaint && inpaintReferences ? inpaintReferences : [...new Map([...generationContext.referenceImages, ...sourceReference].map((image) => [image.id, image])).values()];
                     const generationType = referenceImages.length ? ("edit" as const) : ("generation" as const);
-                    const generationMetadata = buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages);
+                    const generationMetadata = {
+                        ...buildImageGenerationMetadata(generationType, generationConfig, count, referenceImages),
+                        ...(inpaint && inpaintSource ? { inpaintMask: inpaintSource.inpaintMask, inpaintPrompt: effectivePrompt } : {}),
+                    };
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
@@ -2521,7 +2518,7 @@ function InfiniteCanvasPage() {
                             const imageRequest = childComfyProgressSignal(controller.signal, imageId);
                             try {
                                 const image = await (referenceImages.length
-                                    ? requestEdit({ ...generationConfig, count: "1" }, effectivePrompt, referenceImages, { signal: imageRequest.signal })
+                                    ? requestEdit({ ...generationConfig, count: "1" }, requestPrompt, referenceImages, { signal: imageRequest.signal, inpaint })
                                     : requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: imageRequest.signal })
                                 )
                                     .then((items) => items[0])
@@ -2841,7 +2838,9 @@ function InfiniteCanvasPage() {
             }
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || ""));
-            const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+            const savedPrompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
+            // 局部重绘的结果只存了用户原话，重试时按原话重新拼出给非蒙版模型的说明。
+            const prompt = savedImageMetadata?.inpaintMask && savedPrompt ? t("canvas.projectPage.maskPrompt", { source: imageReferenceLabel(0), mask: imageReferenceLabel(1), prompt: savedImageMetadata.inpaintPrompt || savedPrompt }) : savedPrompt;
             if (!prompt) {
                 message.warning(t("canvas.projectPage.retryPromptMissing"));
                 return;
@@ -2937,7 +2936,7 @@ function InfiniteCanvasPage() {
                                 ...(makePrimary ? imageMetadata(uploadedImage) : { status: NODE_STATUS_SUCCESS }),
                                 images: item.metadata?.images?.map((current) => (current.id === retryImage.id ? retryImage : current)),
                                 primaryImageId: makePrimary ? retryImage.id : item.metadata?.primaryImageId,
-                                prompt,
+                                prompt: savedImageMetadata?.inpaintMask ? savedPrompt : prompt,
                                 ...generationMetadata,
                             },
                         };
