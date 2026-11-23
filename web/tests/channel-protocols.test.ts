@@ -35,6 +35,7 @@ const {
     parseComfySettings,
     parseComfyWorkflow,
     serializeComfyWorkflow,
+    toComfyApiWorkflow,
 } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
@@ -385,6 +386,15 @@ describe("ComfyUI 工作流", () => {
         expect(comfyExecutionErrorMessage({ node_id: "3", node_type: "KSampler", exception_type: "torch.OutOfMemoryError", exception_message: "Allocation on device" }, workflow)).toBe("KSampler（#3）执行时显存不足，请降低分辨率、张数或时长后重试");
         expect(comfyExecutionErrorMessage({ node_id: "6", node_type: "CLIPTextEncode", exception_message: "bad clip" }, workflow)).toBe("CLIPTextEncode（#6）执行失败：bad clip");
         expect(comfyExecutionErrorMessage(undefined)).toBe("请求失败");
+    });
+
+    test("导入时统一转成 API 格式并检查缺少的节点", () => {
+        const info = { KSampler: {}, EmptyLatentImage: {}, CLIPTextEncode: {}, LoadImage: {}, SaveImage: { input: { required: { filename_prefix: ["STRING"] } } } } as Record<string, object>;
+        expect(Object.keys(toComfyApiWorkflow(workflow, info))).toHaveLength(5);
+        expect(() => toComfyApiWorkflow({ ...workflow, "11": { class_type: "KreaSampler", inputs: {} } }, info)).toThrow("KreaSampler");
+        expect(toComfyApiWorkflow({ nodes: [{ id: 9, type: "SaveImage", widgets_values: ["out"] }], links: [] }, info)).toEqual({ "9": { class_type: "SaveImage", inputs: { filename_prefix: "out" }, _meta: { title: "SaveImage" } } });
+        expect(() => toComfyApiWorkflow({ nodes: [{ id: 1, type: "Missing" }], links: [] }, info)).toThrow("Missing");
+        expect(() => toComfyApiWorkflow({ nodes: [], links: [], definitions: { subgraphs: [{}] } }, info)).toThrow("子图");
     });
 
     test("只接受 API 格式工作流", () => {
