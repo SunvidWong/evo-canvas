@@ -7,6 +7,7 @@ import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
+import { comfySeedForImage } from "@/services/api/comfyui";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isVideoTaskFailed, storeGeneratedVideo, waitForVideoGenerationTask } from "@/services/api/video";
 import { defaultConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -2522,13 +2523,14 @@ function InfiniteCanvasPage() {
                     let hasFailure = false;
                     let firstError = "";
                     await Promise.all(
-                        imageIds.map(async (imageId) => {
+                        imageIds.map(async (imageId, imageIndex) => {
                             // 每张图一个子 signal：取消跟随整次生成，ComfyUI 进度按图片分别显示。
                             const imageRequest = childComfyProgressSignal(controller.signal, imageId);
+                            const requestConfig = { ...generationConfig, count: "1", comfySeed: comfySeedForImage(generationConfig.comfySeed, imageIndex) };
                             try {
                                 const image = await (referenceImages.length
-                                    ? requestEdit({ ...generationConfig, count: "1" }, requestPrompt, referenceImages, { signal: imageRequest.signal, inpaint })
-                                    : requestGeneration({ ...generationConfig, count: "1" }, effectivePrompt, { signal: imageRequest.signal })
+                                    ? requestEdit(requestConfig, requestPrompt, referenceImages, { signal: imageRequest.signal, inpaint })
+                                    : requestGeneration(requestConfig, effectivePrompt, { signal: imageRequest.signal })
                                 )
                                     .then((items) => items[0])
                                     .finally(imageRequest.release);

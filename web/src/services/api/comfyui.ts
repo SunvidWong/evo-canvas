@@ -17,6 +17,9 @@ export type ComfyVariables = {
     height?: number;
     count?: number;
     seed?: number;
+    /** 单次覆盖采样步数和 CFG；不填就用工作流里的值。 */
+    steps?: number;
+    cfg?: number;
     /** 已上传到 ComfyUI 的参考图文件名，按顺序填入。 */
     images?: string[];
     seconds?: number;
@@ -300,7 +303,48 @@ export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables
         // 只有自动识别出的 Empty*Latent 宽高可以替换连线；手动映射只能选直接填值的参数。
         refs.forEach((ref) => setInput(result, ref, value, !manual && (param === "width" || param === "height")));
     }
+    applySamplerOverrides(result, vars);
     return result;
+}
+
+/** ComfyUI 单次覆盖的上下限：步数 1–COMFY_MAX_STEPS 的整数，CFG 0–COMFY_MAX_CFG，种子 0–MAX_SEED 的整数。 */
+export const COMFY_MAX_STEPS = 1000;
+export const COMFY_MAX_CFG = 100;
+export const COMFY_MAX_SEED = MAX_SEED;
+
+/** 把设置里填的步数、CFG、种子（字符串）转成数字；空的、不是数字或超出范围的当作没填。 */
+export function parseComfyOverrides(values: { comfySteps?: string; comfyCfg?: string; comfySeed?: string }) {
+    const read = (raw: string | undefined, min: number, max: number, integer: boolean) => {
+        if (raw === undefined || raw.trim() === "") return undefined;
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) return undefined;
+        return value;
+    };
+    const result: { steps?: number; cfg?: number; seed?: number } = {};
+    const steps = read(values.comfySteps, 1, COMFY_MAX_STEPS, true);
+    const cfg = read(values.comfyCfg, 0, COMFY_MAX_CFG, false);
+    const seed = read(values.comfySeed, 0, MAX_SEED, true);
+    if (steps !== undefined) result.steps = steps;
+    if (cfg !== undefined) result.cfg = cfg;
+    if (seed !== undefined) result.seed = seed;
+    return result;
+}
+
+/** 一次生成多张时每张图单独跑一次工作流；填了固定种子就依次加 1，免得几张图一模一样。 */
+export function comfySeedForImage(seed: string | undefined, index: number) {
+    const value = parseComfyOverrides({ comfySeed: seed }).seed;
+    return value === undefined || !index ? seed : String((value + index) % (MAX_SEED + 1));
+}
+
+/** 单次覆盖步数和 CFG：改所有采样类节点里直接填数值的 steps、cfg（放大、修复类节点除外）。 */
+function applySamplerOverrides(workflow: ComfyWorkflow, overrides: { steps?: number; cfg?: number }) {
+    for (const node of Object.values(workflow)) {
+        if (!node?.inputs || NON_SAMPLER_SEED_CLASS.test(node.class_type || "")) continue;
+        for (const key of ["steps", "cfg"] as const) {
+            const value = overrides[key];
+            if (value !== undefined && Number.isFinite(value) && typeof node.inputs[key] === "number") node.inputs[key] = value;
+        }
+    }
 }
 
 const VIDEO_EXT = /\.(mp4|webm|mov|mkv|gif)$/i;

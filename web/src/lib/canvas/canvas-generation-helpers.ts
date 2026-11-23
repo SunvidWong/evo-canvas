@@ -128,7 +128,13 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
         audioSpeed: node?.metadata?.audioSpeed || config.audioSpeed || defaultConfig.audioSpeed,
         audioInstructions: node?.metadata?.audioInstructions || config.audioInstructions || defaultConfig.audioInstructions,
         count: String(node?.metadata?.count || (mode === "image" ? config.canvasImageCount || config.count : config.count) || defaultConfig.count),
+        ...nodeComfyOverrides(node),
     };
+}
+
+/** ComfyUI 单次覆盖的步数、CFG、种子只跟着节点走，不继承全局设置。 */
+export function nodeComfyOverrides(node: CanvasNodeData | undefined): Pick<AiConfig, "comfySteps" | "comfyCfg" | "comfySeed"> {
+    return { comfySteps: node?.metadata?.comfySteps, comfyCfg: node?.metadata?.comfyCfg, comfySeed: node?.metadata?.comfySeed };
 }
 
 export function hasResumableVideoTask(node: CanvasNodeData) {

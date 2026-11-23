@@ -59,6 +59,10 @@ export type CanvasNodeMetadata = {
     quality?: string;
     background?: string;
     count?: number;
+    /** ComfyUI 单次覆盖的步数、CFG、种子，只影响这个节点的生成，不改工作流。 */
+    comfySteps?: string;
+    comfyCfg?: string;
+    comfySeed?: string;
     textCount?: number;
     texts?: CanvasNodeText[];
     primaryTextId?: string;

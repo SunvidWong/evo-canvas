@@ -1,11 +1,13 @@
 import { type ReactNode, useState } from "react";
-import { ConfigProvider, Switch } from "antd";
+import { ConfigProvider, Switch, Tooltip } from "antd";
+import { Dices } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
-import type { AiConfig } from "@/stores/use-config-store";
+import { COMFY_MAX_CFG, COMFY_MAX_SEED, COMFY_MAX_STEPS, parseComfyOverrides } from "@/services/api/comfyui";
+import { isComfyModel, type AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
     { value: "auto", labelKey: "auto" },
@@ -21,9 +23,11 @@ export const imageQualityOptions = qualityOptions.map((item) => ({ value: item.v
 export const imageAspectOptions = mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? i18n.t("settingsPanels.common.auto") : item.value }));
 export const imageScaleOptions = mediaScaleOptions.map((value) => ({ value, label: value === "auto" ? i18n.t("settingsPanels.common.auto") : value }));
 
+export type ImageSettingKey = "quality" | "size" | "count" | "background" | "comfySteps" | "comfyCfg" | "comfySeed";
+
 type ImageSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "quality" | "size" | "count" | "background", value: string) => void;
+    onConfigChange: (key: ImageSettingKey, value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -141,8 +145,73 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         <CountInput value={count} max={maxCount} theme={theme} onChange={(value) => onConfigChange("count", String(value || 1))} />
                     </div>
                 </div>
+                {isComfyModel(config, config.model) ? <ComfyOverrides config={config} theme={theme} onConfigChange={onConfigChange} /> : null}
             </div>
         </ImageSettingsTheme>
+    );
+}
+
+/** ComfyUI 渠道的模型才显示：单次覆盖步数、CFG、种子，留空用工作流里的值。 */
+function ComfyOverrides({ config, theme, onConfigChange }: { config: AiConfig; theme: CanvasTheme; onConfigChange: ImageSettingsPanelProps["onConfigChange"] }) {
+    const { t } = useTranslation();
+    const fields = [
+        { key: "comfySteps" as const, label: t("settingsPanels.image.comfySteps"), placeholder: t("settingsPanels.image.comfyDefault"), max: COMFY_MAX_STEPS, min: 1, step: 1 },
+        { key: "comfyCfg" as const, label: t("settingsPanels.image.comfyCfg"), placeholder: t("settingsPanels.image.comfyDefault"), max: COMFY_MAX_CFG, min: 0, step: 0.1 },
+        { key: "comfySeed" as const, label: t("settingsPanels.image.comfySeed"), placeholder: t("settingsPanels.image.comfyRandom"), max: COMFY_MAX_SEED, min: 0, step: 1 },
+    ];
+    const hasValue = fields.some((field) => config[field.key]);
+    return (
+        <div className="space-y-2.5" data-testid="comfy-overrides">
+            <div className="flex items-center justify-between gap-3">
+                <SettingTitle color={theme.node.muted}>{t("settingsPanels.image.comfyTitle")}</SettingTitle>
+                {hasValue ? (
+                    <button type="button" className="cursor-pointer border-0 bg-transparent p-0 underline-offset-2 hover:underline" style={{ color: theme.node.muted, fontSize: 12 }} onMouseDown={(event) => event.stopPropagation()} onClick={() => fields.forEach((field) => onConfigChange(field.key, ""))}>
+                        {t("settingsPanels.image.comfyClear")}
+                    </button>
+                ) : null}
+            </div>
+            <div className="grid grid-cols-[1fr_1fr_1.6fr] gap-2.5">
+                {fields.map((field) => (
+                    <label key={field.key} className="flex h-9 min-w-0 items-center overflow-hidden rounded-xl text-sm" style={{ background: theme.node.fill, color: theme.node.text }}>
+                        <span className="shrink-0 px-2 text-xs" style={{ color: theme.node.muted }}>
+                            {field.label}
+                        </span>
+                        <input
+                            type="number"
+                            data-testid={`comfy-override-${field.key}`}
+                            min={field.min}
+                            max={field.max}
+                            step={field.step}
+                            placeholder={field.placeholder}
+                            className="min-w-0 flex-1 bg-transparent pr-2 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            defaultValue={config[field.key] || ""}
+                            key={`${field.key}-${config[field.key] || ""}`}
+                            onBlur={(event) => {
+                                // 不合法（超范围、种子或步数带小数）就清空，回到工作流里的值。
+                                const raw = event.currentTarget.value.trim();
+                                const valid = raw && Object.values(parseComfyOverrides({ [field.key]: raw })).length ? raw : "";
+                                event.currentTarget.value = valid;
+                                if (valid !== (config[field.key] || "")) onConfigChange(field.key, valid);
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") event.currentTarget.blur();
+                            }}
+                            onMouseDown={(event) => event.stopPropagation()}
+                        />
+                        {field.key === "comfySeed" ? (
+                            <Tooltip title={t("settingsPanels.image.comfyRandomSeed")}>
+                                <button type="button" data-testid="comfy-random-seed" className="grid h-full w-8 shrink-0 cursor-pointer place-items-center bg-transparent" style={{ color: theme.node.muted }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("comfySeed", String(Math.floor(Math.random() * COMFY_MAX_SEED)))}>
+                                    <Dices className="size-3.5" />
+                                </button>
+                            </Tooltip>
+                        ) : null}
+                    </label>
+                ))}
+            </div>
+            <div className="text-xs" style={{ color: theme.node.muted, opacity: 0.75 }}>
+                {t("settingsPanels.image.comfyHint")}
+            </div>
+        </div>
     );
 }
 
