@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { computeMediaSize, inferMediaRatio, inferMediaScale, mediaRatioOptions, mediaScaleOptions, readMediaDimensions } from "@/lib/media-size";
-import { COMFY_MAX_CFG, COMFY_MAX_SEED, COMFY_MAX_STEPS, parseComfyOverrides } from "@/services/api/comfyui";
+import { COMFY_MAX_CFG, COMFY_MAX_SEED, COMFY_MAX_STEPS, COMFY_RANDOM_SEED_MAX, parseComfyOverrides } from "@/services/api/comfyui";
 import { isComfyModel, type AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -202,7 +202,7 @@ function ComfyOverrides({ config, theme, onConfigChange }: { config: AiConfig; t
                         />
                         {field.key === "comfySeed" ? (
                             <Tooltip title={t("settingsPanels.image.comfyRandomSeed")}>
-                                <button type="button" data-testid="comfy-random-seed" className="grid h-full w-8 shrink-0 cursor-pointer place-items-center bg-transparent" style={{ color: theme.node.muted }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("comfySeed", String(Math.floor(Math.random() * COMFY_MAX_SEED)))}>
+                                <button type="button" data-testid="comfy-random-seed" className="grid h-full w-8 shrink-0 cursor-pointer place-items-center bg-transparent" style={{ color: theme.node.muted }} onMouseDown={(event) => event.stopPropagation()} onClick={() => onConfigChange("comfySeed", String(Math.floor(Math.random() * COMFY_RANDOM_SEED_MAX)))}>
                                     <Dices className="size-3.5" />
                                 </button>
                             </Tooltip>

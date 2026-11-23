@@ -307,10 +307,12 @@ export function buildComfyWorkflow(workflow: ComfyWorkflow, vars: ComfyVariables
     return result;
 }
 
-/** ComfyUI 单次覆盖的上下限：步数 1–COMFY_MAX_STEPS 的整数，CFG 0–COMFY_MAX_CFG，种子 0–MAX_SEED 的整数。 */
+/** ComfyUI 单次覆盖的上下限：步数 1–COMFY_MAX_STEPS 的整数，CFG 0–COMFY_MAX_CFG，种子 0–COMFY_MAX_SEED 的整数。
+ * 随机种子仍在 0–2^32-1 里取；能填、能记录的种子放宽到 JS 能精确表示的最大整数，工作流里自带的大种子（例如 156680208700286）也能复用。 */
 export const COMFY_MAX_STEPS = 1000;
 export const COMFY_MAX_CFG = 100;
-export const COMFY_MAX_SEED = MAX_SEED;
+export const COMFY_MAX_SEED = Number.MAX_SAFE_INTEGER;
+export const COMFY_RANDOM_SEED_MAX = MAX_SEED;
 
 /** 把设置里填的步数、CFG、种子（字符串）转成数字；空的、不是数字或超出范围的当作没填。 */
 export function parseComfyOverrides(values: { comfySteps?: string; comfyCfg?: string; comfySeed?: string }) {
@@ -323,7 +325,7 @@ export function parseComfyOverrides(values: { comfySteps?: string; comfyCfg?: st
     const result: { steps?: number; cfg?: number; seed?: number } = {};
     const steps = read(values.comfySteps, 1, COMFY_MAX_STEPS, true);
     const cfg = read(values.comfyCfg, 0, COMFY_MAX_CFG, false);
-    const seed = read(values.comfySeed, 0, MAX_SEED, true);
+    const seed = read(values.comfySeed, 0, COMFY_MAX_SEED, true);
     if (steps !== undefined) result.steps = steps;
     if (cfg !== undefined) result.cfg = cfg;
     if (seed !== undefined) result.seed = seed;
@@ -333,7 +335,7 @@ export function parseComfyOverrides(values: { comfySteps?: string; comfyCfg?: st
 /** 一次生成多张时每张图单独跑一次工作流；填了固定种子就依次加 1，免得几张图一模一样。 */
 export function comfySeedForImage(seed: string | undefined, index: number) {
     const value = parseComfyOverrides({ comfySeed: seed }).seed;
-    return value === undefined || !index ? seed : String((value + index) % (MAX_SEED + 1));
+    return value === undefined || !index ? seed : String(value + index > COMFY_MAX_SEED ? value + index - COMFY_MAX_SEED - 1 : value + index);
 }
 
 /** 单次覆盖步数和 CFG：改所有采样类节点里直接填数值的 steps、cfg（放大、修复类节点除外）。 */
@@ -711,15 +713,18 @@ export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "ap
     return { images: await Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options)))), seed: comfyWorkflowSeed(built, settings) };
 }
 
-/** 实际提交的工作流里用的种子：手动映射的第一个，没映射就取自动识别的第一个采样器；找不到返回 undefined。用于记在结果上，方便复现。 */
+/** 实际提交的工作流里用的种子（手动映射的，没映射就取自动识别的采样器）。只有所有种子都是同一个值时才返回：
+ * 「用这个种子」会把同一个值填进所有种子，几个采样器种子不同时填回去就复现不了，这时返回 undefined。 */
 export function comfyWorkflowSeed(workflow: ComfyWorkflow, settings: ComfyCanvasSettings = {}) {
     const refs = settings.mapping?.seed?.length ? settings.mapping.seed : autoComfyInputs(workflow).seed || [];
+    const values = new Set<number>();
     for (const ref of refs) {
         const [nodeId, input] = splitRef(ref) || [];
         const value = nodeId && input ? workflow[nodeId]?.inputs?.[input] : undefined;
-        if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+        if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return undefined;
+        values.add(value);
     }
-    return undefined;
+    return values.size === 1 ? [...values][0] : undefined;
 }
 
 /** 用工作流生成视频，返回第一个视频文件。 */
