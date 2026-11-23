@@ -1462,7 +1462,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     onTokenChange={(token) => setAgentState({ token, connectError: "" })}
                     onToggleEnabled={toggleAgentConnection}
                 >
-                    {agentKind === "claude" ? <AgentClaudeProvider endpoint={endpoint} token={token} connected={connected} theme={theme} /> : <AgentCodexProvider endpoint={endpoint} token={token} connected={connected} theme={theme} />}
+                    {agentKind === "claude" ? <AgentClaudeProvider endpoint={endpoint} token={token} connected={connected} theme={theme} /> : <AgentCodexProvider />}
                 </AgentConnectView>
             ) : activeTab === "skills" ? (
                 <AgentSkillsView clientId={clientIdRef.current} />

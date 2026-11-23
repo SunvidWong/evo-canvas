@@ -4,10 +4,17 @@ import { useTranslation } from "react-i18next";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { fetchCodexProvider, updateCodexProvider, type CodexProviderSummary } from "@/services/api/canvas-agent";
+import { useAgentStore } from "@/stores/use-agent-store";
+import { useThemeStore } from "@/stores/use-theme-store";
 
 /** Codex Agent 的模型接口：留空时用本机 Codex 登录的账号；填了地址和模型就走兼容 OpenAI Responses 接口的第三方服务或本地模型。Key 只保存在本机 Agent 配置里。 */
-export function AgentCodexProvider({ endpoint, token, connected, theme }: { endpoint: string; token: string; connected: boolean; theme: (typeof canvasThemes)[keyof typeof canvasThemes] }) {
+export function AgentCodexProvider() {
     const { t } = useTranslation();
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const url = useAgentStore((state) => state.url);
+    const token = useAgentStore((state) => state.token);
+    const connected = useAgentStore((state) => state.connected);
+    const endpoint = url.trim().replace(/\/$/, "");
     const { message } = App.useApp();
     const [summary, setSummary] = useState<CodexProviderSummary | null>(null);
     const [baseUrl, setBaseUrl] = useState("");
