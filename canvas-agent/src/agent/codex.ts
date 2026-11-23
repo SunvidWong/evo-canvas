@@ -10,6 +10,7 @@ import { CodexAppClient, CodexReportedError } from "./codex-client.js";
 import { codexEventHistory } from "./codex-event-history.js";
 import { settledTurnIds, summarizeCodexThread, threadMessages } from "./codex-history.js";
 import { messageMetadataStore } from "./message-metadata.js";
+import { codexProviderActive, codexProviderModels, type CodexProviderConfig } from "./codex-provider.js";
 import type { CodexReasoningEffort, CodexSkillMetadata, CodexSkillSelector, CodexSkillsListEntry } from "./codex-protocol.js";
 import type { AgentAttachment, AgentEmit, AgentPermissionMode } from "./types.js";
 
@@ -56,6 +57,24 @@ let codexApp: CodexAppClient | null = null;
 let codexAppStart: Promise<CodexAppClient> | null = null;
 /** 仅表示最近主动加载/选择的线程；运行中的 turn 身份由 CodexAppClient 自己维护。 */
 let loadedThreadId = "";
+/** 网页保存的自定义模型接口，以及当前 app-server 启动时实际用的那一份；两者不同时要重启 Agent 才生效。 */
+let codexProvider: CodexProviderConfig | undefined;
+let appliedCodexProvider: CodexProviderConfig | undefined;
+
+/** 更新自定义模型接口；已启动的 app-server 不会中途切换，下次启动时生效。 */
+export function setCodexProvider(provider: CodexProviderConfig | undefined) {
+    codexProvider = provider;
+}
+
+/** app-server 已经在运行、且启动时用的接口与当前设置不同。 */
+export function codexProviderRestartPending() {
+    return Boolean(codexApp) && JSON.stringify(appliedCodexProvider || {}) !== JSON.stringify(codexProvider || {});
+}
+
+/** 启用自定义接口时只有一个模型，忽略网页传来的官方模型名和思考程度。 */
+function providerTurnSettings(model?: string, effort?: CodexReasoningEffort): { model?: string; effort?: CodexReasoningEffort } {
+    return codexProviderActive(appliedCodexProvider) ? { model: appliedCodexProvider.model } : { model, effort };
+}
 
 export { summarizeCodexThread } from "./codex-history.js";
 
@@ -119,7 +138,8 @@ export async function listCodexThreads(emit: AgentEmit, options: { cwd: string; 
 
 /** 查询当前账号可用于新任务的 Codex 模型。 */
 export async function listCodexModels(emit: AgentEmit) {
-    return await (await getCodexApp(emit)).listModels();
+    const app = await getCodexApp(emit);
+    return codexProviderModels(appliedCodexProvider) || await app.listModels();
 }
 
 /** 查询当前工作空间的原生 Skill 列表。 */
@@ -194,16 +214,17 @@ async function runCodexTurnNow(prompt: string, lifecycleEmit: AgentEmit, attachm
         files = await writeAttachmentFiles(attachments);
         const app = await getCodexApp(options.appEmit || lifecycleEmit);
         let threadId = await ensureCodexThread(app, options, lifecycleEmit);
+        const settings = providerTurnSettings(options.model, options.effort);
         options.onThread?.(threadId);
         try {
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn, options.skill, options.messageText);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", settings.model, settings.effort, options.onTurn, options.skill, options.messageText);
         } catch (error) {
             if (!isRecoverableThreadError(error)) throw error;
             lifecycleEmit("agent_log", { text: `Codex thread unavailable, starting a new thread: ${errorMessage(error)}` });
             loadedThreadId = "";
             threadId = await ensureCodexThread(app, { cwd: options.cwd }, lifecycleEmit);
             options.onThread?.(threadId);
-            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", options.model, options.effort, options.onTurn, options.skill, options.messageText);
+            await app.startTurn(threadId, prompt, files, options.permissionMode || "request", settings.model, settings.effort, options.onTurn, options.skill, options.messageText);
         }
     } catch (error) {
         logger.error("Codex turn failed", error);
@@ -249,7 +270,8 @@ async function generateCodexSkillDraftNow(emit: AgentEmit, cwd: string, input: C
     try {
         const thread = input.source === "conversation" ? await app.forkSkillDraftThread(input.threadId, cwd) : await app.startSkillDraftThread(cwd);
         threadId = String(field(thread, "id") || "");
-        const raw = await app.generateSkillDraft(threadId, skillDraftPrompt(input), SKILL_DRAFT_OUTPUT_SCHEMA, input.model, input.effort);
+        const settings = providerTurnSettings(input.model, input.effort);
+        const raw = await app.generateSkillDraft(threadId, skillDraftPrompt(input), SKILL_DRAFT_OUTPUT_SCHEMA, settings.model, settings.effort);
         let value: unknown;
         try {
             value = JSON.parse(raw);
@@ -456,10 +478,16 @@ async function resumeLoadedThread(app: CodexAppClient, threadId: string, cwd?: s
 /** 获取已启动的 Codex app-server 客户端。 */
 async function getCodexApp(emit: AgentEmit) {
     if (codexApp) return codexApp;
-    codexAppStart ||= CodexAppClient.start(emit, () => {
-        codexApp = null;
-        loadedThreadId = "";
-    });
+    if (!codexAppStart) {
+        const provider = codexProvider;
+        codexAppStart = CodexAppClient.start(emit, () => {
+            codexApp = null;
+            loadedThreadId = "";
+        }, provider).then((app) => {
+            appliedCodexProvider = provider;
+            return app;
+        });
+    }
     try {
         codexApp = await codexAppStart;
         return codexApp;

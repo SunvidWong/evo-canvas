@@ -57,7 +57,7 @@ export function claudeProviderEnv(provider: ClaudeProviderConfig | undefined, ba
     return env;
 }
 
-function cleanField(value: unknown, maxLength: number) {
+export function cleanField(value: unknown, maxLength: number) {
     if (typeof value !== "string") throw new Error("设置格式不正确");
     const text = value.trim();
     if (/[\r\n\0]/.test(text)) throw new Error("设置里不能包含换行");
@@ -65,7 +65,7 @@ function cleanField(value: unknown, maxLength: number) {
     return text;
 }
 
-function isHttpUrl(value: string) {
+export function isHttpUrl(value: string) {
     try {
         const url = new URL(value);
         return (url.protocol === "http:" || url.protocol === "https:") && Boolean(url.hostname);

@@ -5,7 +5,7 @@ import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { deleteClaudeThread, interruptClaudeTurn, listClaudeThreads, newClaudeThreadId, readClaudeThread, runClaudeTurn } from "../agent/claude.js";
-import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
+import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, codexProviderRestartPending, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, setCodexProvider, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
 import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-protocol.js";
 import { AgentMemoryError, agentMemoryStore } from "../agent/memory.js";
 import { messageMetadataStore } from "../agent/message-metadata.js";
@@ -13,6 +13,7 @@ import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
 import { createToken, DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type AgentKind, type CanvasAgentConfig } from "../config.js";
 import { claudeProviderSummary, mergeClaudeProvider, type ClaudeProviderPatch } from "../agent/claude-provider.js";
+import { codexProviderSummary, mergeCodexProvider, type CodexProviderPatch } from "../agent/codex-provider.js";
 import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
 import { buildInstallPreview, downloadSkill, parseSkillInstallUrl } from "../skills/install.js";
@@ -24,6 +25,7 @@ export function startHttpServer({ resetToken = false } = {}) {
     const port = Number(process.env.PORT) || Number(new URL(config.url).port) || DEFAULT_PORT;
     config.url = `http://127.0.0.1:${port}`;
     saveConfig(config);
+    setCodexProvider(config.codexProvider);
 
     const initialWorkspace = ensureSiteWorkspace(config);
     const session = new CanvasSession(initialWorkspace.activeThreadId || "");
@@ -235,6 +237,19 @@ export function startHttpServer({ resetToken = false } = {}) {
         const data = claudeProviderSummary(config.claudeProvider);
         // 只记录是否设置了 Token，不写 Token 本身。
         logger.info("Claude provider updated", data);
+        res.json({ ok: true, data });
+    }));
+    const codexProviderData = () => ({ ...codexProviderSummary(config.codexProvider), restartPending: codexProviderRestartPending() });
+    app.get("/agent/codex/provider", (_req, res) => res.json({ ok: true, data: codexProviderData() }));
+    app.post("/agent/codex/provider", route(async (req, res) => {
+        const body = req.body && typeof req.body === "object" ? req.body as CodexProviderPatch : {};
+        config.codexProvider = mergeCodexProvider(config.codexProvider, { baseUrl: body.baseUrl, apiKey: body.apiKey, model: body.model });
+        if (!Object.keys(config.codexProvider).length) delete config.codexProvider;
+        saveConfig(config);
+        setCodexProvider(config.codexProvider);
+        const data = codexProviderData();
+        // 只记录是否设置了 Key，不写 Key 本身。
+        logger.info("Codex provider updated", data);
         res.json({ ok: true, data });
     }));
     app.get("/agent/codex/skills", route(async (req, res) => {

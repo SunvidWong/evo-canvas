@@ -8,6 +8,7 @@ import { VERSION } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { field, type JsonRecord } from "../utils/value.js";
 import { codexEventHistory, type CodexEventHistory } from "./codex-event-history.js";
+import { codexProviderActive, codexProviderArgs, codexProviderEnv, type CodexProviderConfig } from "./codex-provider.js";
 import type { CodexNotificationParams, CodexPlanUpdate, CodexReasoningEffort, CodexRequestMethod, CodexRequestParams, CodexRequestResult, CodexSkillSelector, CodexTurnInput } from "./codex-protocol.js";
 import type { AgentEmit, AgentPermissionMode } from "./types.js";
 
@@ -66,9 +67,11 @@ export class CodexAppClient {
     private constructor(private child: ChildProcess, private emit: AgentEmit, private eventHistory: Pick<CodexEventHistory, "record" | "recordTurn"> = codexEventHistory) {}
 
     /** 启动并初始化 Codex app-server。 */
-    static async start(emit: AgentEmit, onExit: () => void) {
-        logger.info("Starting Codex app-server", { executable: process.execPath, codex: codexBin() });
-        const child = spawn(process.execPath, [codexBin(), "app-server", "--stdio"], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    static async start(emit: AgentEmit, onExit: () => void, provider?: CodexProviderConfig) {
+        // 只记录地址和模型，不写 Key。
+        logger.info("Starting Codex app-server", { executable: process.execPath, codex: codexBin(), provider: codexProviderActive(provider) ? { baseUrl: provider.baseUrl, model: provider.model } : undefined });
+        const env = codexProviderEnv(provider);
+        const child = spawn(process.execPath, [codexBin(), "app-server", "--stdio", ...codexProviderArgs(provider)], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, ...(env ? { env } : {}) });
         const client = new CodexAppClient(child, emit);
         let stopped = false;
         const stop = () => {

@@ -167,6 +167,18 @@ export function updateClaudeProvider(endpoint: string, token: string, patch: { b
     return fetchAgentJson<{ ok?: boolean; data?: ClaudeProviderSummary }>(endpoint, token, "/agent/claude/provider", jsonPost(patch));
 }
 
+/** Codex Agent 自定义模型接口的摘要；Key 不会回传给网页。active 为地址和模型都已填写；restartPending 为改动要重启本地 Agent 才生效。 */
+export type CodexProviderSummary = { baseUrl: string; model: string; hasKey: boolean; active: boolean; restartPending: boolean };
+
+export function fetchCodexProvider(endpoint: string, token: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: CodexProviderSummary }>(endpoint, token, "/agent/codex/provider");
+}
+
+/** apiKey 不传表示保留原值，传空字符串表示清除。 */
+export function updateCodexProvider(endpoint: string, token: string, patch: { baseUrl?: string; model?: string; apiKey?: string }) {
+    return fetchAgentJson<{ ok?: boolean; data?: CodexProviderSummary }>(endpoint, token, "/agent/codex/provider", jsonPost(patch));
+}
+
 export type AgentSkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: AgentSkillFile[]; totalSize: number };
 
 export function previewCodexSkillInstall(endpoint: string, token: string, url: string) {
