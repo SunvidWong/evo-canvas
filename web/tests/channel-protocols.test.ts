@@ -20,6 +20,8 @@ const { bindComfyProgressNode, childComfyProgressSignal, clearComfyProgress, get
 const { buildApiUrl, channelNeedsApiKey, guessCapability, upsertChannelCredentials, createModelChannel, hasChannelCredentials, isLocalBaseUrl, normalizeChannelModels } = await import("../src/stores/use-config-store");
 const {
     autoComfyInputs,
+    comfyErrorMessage,
+    comfyExecutionErrorMessage,
     comfyQueuePosition,
     comfySocketUrl,
     generateComfyVideo,
@@ -349,6 +351,40 @@ describe("ComfyUI 工作流", () => {
                 globalThis.fetch = originalFetch;
             }
         }
+    });
+
+    test("把 ComfyUI 校验错误整理成「节点：原因」", () => {
+        const titled = { ...workflow, "4": { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "krea2.safetensors" }, _meta: { title: "加载模型" } } };
+        const message = comfyErrorMessage(
+            {
+                error: { type: "prompt_outputs_failed_validation", message: "Prompt outputs failed validation", details: "" },
+                node_errors: {
+                    "4": {
+                        class_type: "CheckpointLoaderSimple",
+                        errors: [{ type: "value_not_in_list", message: "Value not in list", details: "ckpt_name: 'krea2.safetensors' not in ['sdxl.safetensors']", extra_info: { input_name: "ckpt_name", received_value: "krea2.safetensors" } }],
+                    },
+                    "3": { class_type: "KSampler", errors: [{ type: "required_input_missing", message: "Required input is missing", details: "model", extra_info: { input_name: "model" } }] },
+                    "5": { class_type: "EmptyLatentImage", errors: [{ type: "value_bigger_than_max", message: "Value 99999 bigger than max of 16384", details: "width", extra_info: { input_name: "width" } }] },
+                },
+            },
+            titled,
+        );
+        expect(message.split("\n")).toEqual([
+            "ComfyUI 校验工作流没通过：",
+            "KSampler（#3）：缺少必填输入 model",
+            "加载模型（#4）：找不到模型文件 krea2.safetensors（参数 ckpt_name），请确认它在 ComfyUI 的 models 目录里，或在映射里换成已有的模型",
+            "EmptyLatentImage（#5）：参数 width 超出允许范围（Value 99999 bigger than max of 16384: width）",
+        ]);
+        expect(comfyErrorMessage({ error: { type: "invalid_prompt", message: "Cannot execute because node KreaSampler does not exist.", details: "Node ID '#7'" }, node_errors: {} })).toBe(
+            "ComfyUI 没有安装节点 KreaSampler，请先在 ComfyUI 里安装对应的自定义节点",
+        );
+        expect(comfyErrorMessage({ error: "boom" })).toBe("boom");
+    });
+
+    test("执行失败时说明哪个节点出错，显存不足给出建议", () => {
+        expect(comfyExecutionErrorMessage({ node_id: "3", node_type: "KSampler", exception_type: "torch.OutOfMemoryError", exception_message: "Allocation on device" }, workflow)).toBe("KSampler（#3）执行时显存不足，请降低分辨率、张数或时长后重试");
+        expect(comfyExecutionErrorMessage({ node_id: "6", node_type: "CLIPTextEncode", exception_message: "bad clip" }, workflow)).toBe("CLIPTextEncode（#6）执行失败：bad clip");
+        expect(comfyExecutionErrorMessage(undefined)).toBe("请求失败");
     });
 
     test("只接受 API 格式工作流", () => {
