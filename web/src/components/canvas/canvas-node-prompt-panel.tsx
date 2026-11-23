@@ -199,6 +199,7 @@ function videoConfigPatch(key: keyof AiConfig, value: string) {
 }
 
 function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
+    if (key === "comfySteps" || key === "comfyCfg" || key === "comfySeed") return { [key]: value };
     if (key === "audioVoice") return { audioVoice: value };
     if (key === "audioFormat") return { audioFormat: value };
     if (key === "audioSpeed") return { audioSpeed: value };

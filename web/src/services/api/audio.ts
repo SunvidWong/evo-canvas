@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 import { audioMimeType, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { apiFormatName, buildApiUrl, channelNeedsApiKey, resolveModelRequestConfig, resolveModelScript, resolveModelWorkflow, withLocalProxy, type AiConfig } from "@/stores/use-config-store";
-import { generateComfyAudio } from "./comfyui";
+import { generateComfyAudio, parseComfyOverrides } from "./comfyui";
 import { runModelPlugin } from "./model-plugin";
 
 type RequestOptions = { signal?: AbortSignal };
@@ -31,7 +31,7 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
         const workflow = resolveModelWorkflow(config, config.model || config.audioModel);
         if (!workflow) throw new Error(apiText("comfyWorkflowMissing", { model }));
         try {
-            return await generateComfyAudio(requestConfig, workflow, { prompt }, options);
+            return await generateComfyAudio(requestConfig, workflow, { prompt, ...parseComfyOverrides(config) }, options);
         } catch (error) {
             throw new Error(readAxiosError(error, apiText("audioGenerationFailed")));
         }

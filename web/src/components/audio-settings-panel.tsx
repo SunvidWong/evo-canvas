@@ -1,14 +1,14 @@
 import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ImageSettingsTheme } from "@/components/image-settings-panel";
+import { ComfyOverrides, ImageSettingsTheme, type ComfyOverrideKey } from "@/components/image-settings-panel";
 import { audioFormatOptions, audioSpeedLabel, audioVoiceOptions, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import type { AiConfig } from "@/stores/use-config-store";
+import { isComfyModel, type AiConfig } from "@/stores/use-config-store";
 
 const speedOptions = ["0.75", "1", "1.25", "1.5"];
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioInstructions" | ComfyOverrideKey;
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -77,6 +77,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         onMouseDown={(event) => event.stopPropagation()}
                     />
                 </SettingGroup>
+                {isComfyModel(config, config.model) ? <ComfyOverrides config={config} theme={theme} onConfigChange={onConfigChange} /> : null}
             </div>
         </ImageSettingsTheme>
     );

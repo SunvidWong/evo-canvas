@@ -23,7 +23,7 @@ export const imageQualityOptions = qualityOptions.map((item) => ({ value: item.v
 export const imageAspectOptions = mediaRatioOptions.map((item) => ({ value: item.value, label: item.value === "auto" ? i18n.t("settingsPanels.common.auto") : item.value }));
 export const imageScaleOptions = mediaScaleOptions.map((value) => ({ value, label: value === "auto" ? i18n.t("settingsPanels.common.auto") : value }));
 
-export type ImageSettingKey = "quality" | "size" | "count" | "background" | "comfySteps" | "comfyCfg" | "comfySeed";
+export type ImageSettingKey = "quality" | "size" | "count" | "background" | ComfyOverrideKey;
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
@@ -153,8 +153,10 @@ export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = 
     );
 }
 
-/** ComfyUI 渠道的模型才显示：单次覆盖步数、CFG、种子，留空用工作流里的值。 */
-function ComfyOverrides({ config, theme, onConfigChange }: { config: AiConfig; theme: CanvasTheme; onConfigChange: ImageSettingsPanelProps["onConfigChange"] }) {
+export type ComfyOverrideKey = "comfySteps" | "comfyCfg" | "comfySeed";
+
+/** ComfyUI 渠道的模型才显示：单次覆盖步数、CFG、种子，留空用工作流里的值。图像、视频、音频设置共用。 */
+export function ComfyOverrides({ config, theme, onConfigChange }: { config: AiConfig; theme: CanvasTheme; onConfigChange: (key: ComfyOverrideKey, value: string) => void }) {
     const { t } = useTranslation();
     const fields = [
         { key: "comfySteps" as const, label: t("settingsPanels.image.comfySteps"), placeholder: t("settingsPanels.image.comfyDefault"), max: COMFY_MAX_STEPS, min: 1, step: 1 },
