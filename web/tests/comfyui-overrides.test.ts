@@ -4,7 +4,7 @@ import type { ComfyWorkflow } from "../src/services/api/comfyui";
 
 // comfyui.ts 会加载 i18n，它在初始化时读 localStorage。
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined } });
-const { buildComfyWorkflow, comfySeedForImage, parseComfyOverrides } = await import("../src/services/api/comfyui");
+const { buildComfyWorkflow, comfySeedForImage, comfyWorkflowSeed, parseComfyOverrides } = await import("../src/services/api/comfyui");
 
 const workflow: ComfyWorkflow = {
     "3": { class_type: "KSampler", inputs: { seed: 1, steps: 20, cfg: 7, positive: ["6", 0] } },
@@ -46,4 +46,14 @@ test("each extra image in a batch gets the next seed", () => {
     expect(comfySeedForImage(String(2 ** 32 - 1), 1)).toBe("0");
     expect(comfySeedForImage(undefined, 3)).toBeUndefined();
     expect(comfySeedForImage("abc", 1)).toBe("abc");
+});
+
+test("reads back the seed that was actually submitted", () => {
+    const built = buildComfyWorkflow(workflow, { prompt: "dog" });
+    const seed = comfyWorkflowSeed(built);
+    expect(seed).toBe(built["3"].inputs?.seed as number);
+    expect(comfyWorkflowSeed(buildComfyWorkflow(workflow, { prompt: "dog", seed: 7 }))).toBe(7);
+    // 手动映射优先；节点 10 是放大器，自动识别会跳过它。
+    expect(comfyWorkflowSeed(built, { mapping: { seed: ["10.seed"] } })).toBe(5);
+    expect(comfyWorkflowSeed({ "1": { class_type: "SaveImage", inputs: {} } })).toBeUndefined();
 });

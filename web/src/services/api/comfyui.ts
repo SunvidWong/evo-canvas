@@ -705,9 +705,21 @@ export async function generateComfyImages(config: Pick<AiConfig, "baseUrl" | "ap
     const workflow = parseComfyWorkflow(workflowText);
     const settings = parseComfySettings(workflowText);
     const images = await uploadComfyReferences(config, workflow, settings, vars.references, options, vars.mask);
-    const files = (await runComfyWorkflow(config, buildComfyWorkflow(workflow, { ...vars, images }, settings), { ...options, outputNodes: settings.outputNodes })).filter((file) => file.kind === "image");
+    const built = buildComfyWorkflow(workflow, { ...vars, images }, settings);
+    const files = (await runComfyWorkflow(config, built, { ...options, outputNodes: settings.outputNodes })).filter((file) => file.kind === "image");
     if (!files.length) throw new Error(apiText("comfyNoOutput"));
-    return Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options))));
+    return { images: await Promise.all(files.map(async (file) => readFileAsDataUrl(await comfyImageFile(config, file, options)))), seed: comfyWorkflowSeed(built, settings) };
+}
+
+/** 实际提交的工作流里用的种子：手动映射的第一个，没映射就取自动识别的第一个采样器；找不到返回 undefined。用于记在结果上，方便复现。 */
+export function comfyWorkflowSeed(workflow: ComfyWorkflow, settings: ComfyCanvasSettings = {}) {
+    const refs = settings.mapping?.seed?.length ? settings.mapping.seed : autoComfyInputs(workflow).seed || [];
+    for (const ref of refs) {
+        const [nodeId, input] = splitRef(ref) || [];
+        const value = nodeId && input ? workflow[nodeId]?.inputs?.[input] : undefined;
+        if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+    }
+    return undefined;
 }
 
 /** 用工作流生成视频，返回第一个视频文件。 */
