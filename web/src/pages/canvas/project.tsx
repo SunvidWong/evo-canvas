@@ -72,6 +72,7 @@ import {
     sourceNodeReferenceImages,
 } from "@/lib/canvas/canvas-generation-helpers";
 import { getNodeDefinition, isBuiltinNodeType as isBuiltinType, useNodeRegistryVersion } from "@/lib/canvas/node-registry";
+import { placeWithoutOverlap } from "@/lib/canvas/canvas-placement";
 import { registerBuiltinNodes } from "@/components/canvas/nodes/builtin-nodes";
 import { CanvasPluginManagerModal } from "@/components/canvas/canvas-plugin-manager-modal";
 import { CanvasRefreshShell } from "@/components/canvas/canvas-refresh-shell";
@@ -275,6 +276,8 @@ function InfiniteCanvasPage() {
     const [referencePickerNodeId, setReferencePickerNodeId] = useState<string | null>(null);
 
     const nodesRef = useRef(nodes);
+    // 新生成的节点放在源节点右侧，被已有节点挡住就往下错开，避免连续生成时叠在一起。
+    const placeNewNode = (position: Position, width: number, height: number) => placeWithoutOverlap(position, { width, height }, nodesRef.current);
     const connectionsRef = useRef(connections);
     const selectedNodeIdsRef = useRef(selectedNodeIds);
     const viewportRef = useRef(viewport);
@@ -1783,7 +1786,7 @@ function InfiniteCanvasPage() {
             id,
             type: CanvasNodeType.Image,
             title: node.title,
-            position: { x: node.position.x + node.width * 2 + 96, y: node.position.y + node.height / 2 - size.height / 2 },
+            position: placeNewNode({ x: node.position.x + node.width * 2 + 96, y: node.position.y + node.height / 2 - size.height / 2 }, size.width, size.height),
             ...size,
             metadata: {
                 content: image.content,
@@ -1976,7 +1979,7 @@ function InfiniteCanvasPage() {
             id: childId,
             type: CanvasNodeType.Image,
             title: "Cropped Image",
-            position: { x: node.position.x + node.width + 96, y: node.position.y },
+            position: placeNewNode({ x: node.position.x + node.width + 96, y: node.position.y }, width, width * (image.height / image.width)),
             width,
             height: width * (image.height / image.width),
             metadata: {
@@ -2060,7 +2063,7 @@ function InfiniteCanvasPage() {
                     id: childId,
                     type: CanvasNodeType.Image,
                     title: userPrompt.slice(0, 32) || t("canvas.projectPage.maskResult"),
-                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    position: placeNewNode({ x: node.position.x + node.width + 96, y: node.position.y }, node.width, node.height),
                     width: node.width,
                     height: node.height,
                     metadata: childMetadata,
@@ -2103,7 +2106,7 @@ function InfiniteCanvasPage() {
             id: childId,
             type: CanvasNodeType.Image,
             title: "Upscaled Image",
-            position: { x: node.position.x + node.width + 96, y: node.position.y },
+            position: placeNewNode({ x: node.position.x + node.width + 96, y: node.position.y }, size.width, size.height),
             width: size.width,
             height: size.height,
             metadata: {
@@ -2140,7 +2143,7 @@ function InfiniteCanvasPage() {
                     id: childId,
                     type: CanvasNodeType.Image,
                     title,
-                    position: { x: node.position.x + node.width + 96, y: node.position.y },
+                    position: placeNewNode({ x: node.position.x + node.width + 96, y: node.position.y }, imageConfig.width, imageConfig.height),
                     width: imageConfig.width,
                     height: imageConfig.height,
                     metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
@@ -2447,6 +2450,8 @@ function InfiniteCanvasPage() {
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
+                    // 图片和配置节点保持原尺寸；其他节点下面会被改成默认尺寸的文本节点，按改后的宽度摆放结果。
+                    const sourceWidthAfterUpdate = isImageNode || isConfigNode ? sourceNode?.width || parentConfig.width : parentConfig.width;
                     const rootId = reuseImageNode ? nodeId : nanoid();
                     const imageIds = Array.from({ length: count }, () => nanoid());
                     pendingChildIds = [rootId];
@@ -2454,10 +2459,9 @@ function InfiniteCanvasPage() {
                         id: rootId,
                         type: CanvasNodeType.Image,
                         title: effectivePrompt.slice(0, 32) || "Generated Image",
-                        position: {
-                            x: reuseImageNode ? parentPosition.x : parentPosition.x + parentConfig.width + 96,
-                            y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2,
-                        },
+                        position: reuseImageNode
+                            ? { x: parentPosition.x, y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2 }
+                            : placeNewNode({ x: parentPosition.x + sourceWidthAfterUpdate + 96, y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2 }, imageConfig.width, imageConfig.height),
                         width: reuseImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
                         height: reuseImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
@@ -2593,7 +2597,7 @@ function InfiniteCanvasPage() {
                         id: videoId,
                         type: CanvasNodeType.Video,
                         title: effectivePrompt.slice(0, 32) || "Generated Video",
-                        position: reuseVideoNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y },
+                        position: reuseVideoNode ? sourceNode.position : placeNewNode({ x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y }, spec.width, spec.height),
                         width: reuseVideoNode ? sourceNode.width : spec.width,
                         height: reuseVideoNode ? sourceNode.height : spec.height,
                         metadata: {
@@ -2643,7 +2647,7 @@ function InfiniteCanvasPage() {
                         id: audioId,
                         type: CanvasNodeType.Audio,
                         title: effectivePrompt.slice(0, 32) || "Generated Audio",
-                        position: reuseAudioNode ? sourceNode.position : { x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 },
+                        position: reuseAudioNode ? sourceNode.position : placeNewNode({ x: parent.x + (sourceNode?.width || spec.width) + 96, y: parent.y + ((sourceNode?.height || spec.height) - spec.height) / 2 }, spec.width, spec.height),
                         width: reuseAudioNode ? sourceNode.width : spec.width,
                         height: reuseAudioNode ? sourceNode.height : spec.height,
                         metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, ...buildAudioGenerationMetadata(generationConfig) },
@@ -2678,7 +2682,7 @@ function InfiniteCanvasPage() {
                     id: rootId,
                     type: CanvasNodeType.Text,
                     title: effectivePrompt.slice(0, 32) || "Generated Text",
-                    position: reuseTextNode ? sourceNode.position : { x: parentPosition.x + parentConfig.width + 96, y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 },
+                    position: reuseTextNode ? sourceNode.position : placeNewNode({ x: parentPosition.x + (sourceNode?.width || parentConfig.width) + 96, y: parentPosition.y + parentConfig.height / 2 - textConfig.height / 2 }, textConfig.width, textConfig.height),
                     width: reuseTextNode ? sourceNode.width : textConfig.width,
                     height: reuseTextNode ? sourceNode.height : textConfig.height,
                     metadata: {
