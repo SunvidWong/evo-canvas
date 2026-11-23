@@ -592,10 +592,17 @@ export function comfyImageSlots(workflow: ComfyWorkflow, settings: ComfyCanvasSe
     return (settings.mapping?.image?.length ? settings.mapping.image : autoComfyInputs(workflow).image || []).length;
 }
 
+/** 同一条提示在这段时间内只弹一次：一次生成多张图时每张图各跑一次工作流，不重复提示。 */
+const WARNING_DEDUPE_MS = 5000;
+const recentWarnings = new Map<string, number>();
+
 /** 生成不中断，只在页面上提示一下；没有页面（例如测试环境）时跳过。 */
 function notifyWarning(text: string) {
     if (typeof document === "undefined") return;
-    void message.warning(text);
+    const now = Date.now();
+    if (now - (recentWarnings.get(text) ?? -Infinity) < WARNING_DEDUPE_MS) return;
+    recentWarnings.set(text, now);
+    void message.warning({ content: text, key: `comfy-warning:${text}` });
 }
 
 /** 只上传工作流用得上的参考图；多出来的不上传，并提示只用了前几张。 */

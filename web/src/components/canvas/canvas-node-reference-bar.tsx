@@ -1,5 +1,5 @@
 import { FileText, Image as ImageIcon, Music2, Plus, Puzzle, Video, X } from "lucide-react";
-import { Popover } from "antd";
+import { Popover, Tooltip } from "antd";
 import { useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,18 +7,23 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
 import { getGroupResourceNodes } from "@/lib/canvas/canvas-resource-references";
 import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
+import { useConfigStore } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 export function CanvasNodeReferenceBar({ nodeId, nodes, connectedNodes, onDisconnect, onStartSelection }: { nodeId: string; nodes: CanvasNodeData[]; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void }) {
     const { t } = useTranslation();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const overwrite = useConfigStore((state) => state.config.nodeRegenerateBehavior === "overwrite");
     const references = connectedNodes.flatMap((sourceNode) => (sourceNode.type === CanvasNodeType.Group ? getGroupResourceNodes(sourceNode.id, nodes) : [sourceNode]).map((node) => ({ node, sourceNodeId: sourceNode.id })));
+    // 有图的图片节点再生成时，自己的图也会作为参考图（覆盖模式除外），这里显示出来，和实际发出的张数一致。
+    const selfNode = overwrite ? undefined : nodes.find((node) => node.id === nodeId && node.type === CanvasNodeType.Image && node.metadata?.content);
     return (
         <div className="mb-2">
             <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted }}>{t("canvas.references.title")}</div>
             <div className="thin-scrollbar flex min-h-12 gap-2 overflow-x-auto pb-1">
                 {references.map(({ node, sourceNodeId }) => <ReferenceItem key={`${sourceNodeId}:${node.id}`} node={node} onRemove={() => onDisconnect?.(sourceNodeId, nodeId)} />)}
+                {selfNode ? <SelfReferenceItem node={selfNode} /> : null}
                 <button type="button" className="grid size-12 shrink-0 place-items-center rounded-xl border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title={t("canvas.references.select")} onClick={() => onStartSelection?.(nodeId)}>
                     <Plus className="size-4" />
                 </button>
@@ -44,6 +49,21 @@ function ReferenceItem({ node, onRemove }: { node: CanvasNodeData; onRemove: () 
                 <button type="button" className="absolute right-0 top-0 grid size-5 place-items-center rounded-full border opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} aria-label={t("canvas.references.disconnect")} title={t("canvas.references.disconnect")} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onRemove(); }}><X className="size-3" /></button>
             </div>
         </Popover>
+    );
+}
+
+function SelfReferenceItem({ node }: { node: CanvasNodeData }) {
+    const { t } = useTranslation();
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision);
+    const thumbnail = previewUrlFor(node.metadata?.storageKey) || node.metadata?.content;
+    return (
+        <Tooltip title={t("canvas.references.selfHint")}>
+            <div className="relative grid size-12 shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed" style={{ background: theme.toolbar.activeBg, borderColor: theme.toolbar.border }} data-testid="reference-self">
+                {thumbnail ? <img src={thumbnail} alt="" className="size-full object-cover" /> : <ImageIcon className="size-4 opacity-65" />}
+                <span className="absolute inset-x-0 bottom-0 bg-black/55 text-center text-[9px] leading-4 text-white">{t("canvas.references.self")}</span>
+            </div>
+        </Tooltip>
     );
 }
 

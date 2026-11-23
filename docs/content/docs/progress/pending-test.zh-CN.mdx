@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- ComfyUI 实机复测修复：① 用 ComfyUI 一次生成 2 张以上，第一张回到画布后，主图底部应继续显示「生成中 1/2」和下一张的排队位置或步数，全部完成后消失。② 选中一个已有图片的节点，再连一张参考图：参考区应显示连接的图，最后多一个带「本图」标记的当前图片；只有一个 LoadImage 的工作流应使用连接的那张参考图，提示「只用了前 1 张（共 2 张）」。覆盖模式下不显示「本图」。③ 用没有 LoadImage 的工作流一次生成多张，「参考图没有使用」只弹一次。④ 局部重绘的结果点重试，仍只重画涂抹区域。
 - Claude Agent 使用第三方或本地模型：把 Agent 切到 Claude，打开连接设置，在「Claude 模型接口」里填兼容 Anthropic 接口的地址（如 DeepSeek、Kimi、智谱的 Anthropic 兼容地址，或本机 LiteLLM）、Token 和模型，然后保存。下一条消息应走这个服务。Token 输入框只提示「已保存」，不回显 Token 本身。点「恢复使用官方账号」后三项都清空，下一条消息改用本机 Claude 登录。非 http(s) 地址会被拒绝。
 - 链接导入带协议：用 `?baseUrl=...&apiKey=...` 打开站点时，按厂商预设推断协议和名称（例如 `https://api.deepseek.com/v1` 会新建为 OpenAI 兼容协议的「DeepSeek」）。可以用 `apiFormat`（或 `protocol`）指定协议，取值为 `openai`、`openai-chat`、`anthropic`、`gemini`、`comfyui`，未知值会被忽略。`name` 用来指定新渠道的名称。导入已存在的地址时，更新 Key 和协议，名称保持不变。导入后这些参数都会从地址栏移除，其他参数保留。
 - ComfyUI 局部重绘：准备一个用 LoadImage 的 MASK 输出做局部重绘的工作流（例如 LoadImage → VAEEncodeForInpaint 或 InpaintModelConditioning），在画布上对图片用「局部遮罩编辑」涂抹并选这个工作流生成。ComfyUI 的 input/infinite-canvas 里应出现「原图名-mask.png」，只有涂抹的区域被重画；提示词就是你输入的修改要求，不带蓝色标注的说明；工作流只收到原图，不收到蓝色标注图。其他协议的局部编辑行为不变。
