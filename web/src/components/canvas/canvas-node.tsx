@@ -461,7 +461,8 @@ function NodeContent(props: NodeContentRendererProps) {
     if (props.node.type === CanvasNodeType.Config && props.renderNodeContent) return props.renderNodeContent(props.node);
     if (props.isBatchRoot && props.node.type === CanvasNodeType.Image) return <ImageNodeContent {...props} />;
     if (props.node.type === CanvasNodeType.Text && props.node.metadata?.texts?.length && (props.node.metadata.status !== "error" || props.node.metadata.texts.some((text) => text.content))) return <TextContent {...props} />;
-    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} nodeId={props.node.id} />;
+    // 只生成一张时节点不算图片组，但进度和预览记在这张图上，要按图片 id 查。
+    if (props.node.metadata?.status === "loading") return <LoadingContent theme={props.theme} nodeId={props.node.id} imageId={props.node.metadata.images?.find((image) => image.status === "loading")?.id} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} />;
 
     const Renderer = nodeContentRenderers[props.node.type as CanvasNodeType];
@@ -500,14 +501,14 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
     );
 }
 
-function LoadingContent({ theme, nodeId }: Pick<NodeContentRendererProps, "theme"> & { nodeId?: string }) {
+function LoadingContent({ theme, nodeId, imageId }: Pick<NodeContentRendererProps, "theme"> & { nodeId?: string; imageId?: string }) {
     const { t } = useTranslation();
     return (
         <div className="relative flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
-            <ComfyPreviewImage nodeId={nodeId} />
+            <ComfyPreviewImage nodeId={nodeId} imageId={imageId} />
             <div className="relative size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />
             <span className="relative text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span>
-            <ComfyProgressLine nodeId={nodeId} theme={theme} />
+            <ComfyProgressLine nodeId={nodeId} imageId={imageId} theme={theme} />
         </div>
     );
 }
