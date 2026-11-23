@@ -553,7 +553,7 @@ export default {
             addWorkflow: "添加工作流",
             workflowDescription: "已添加 {{count}} 个工作流；每个工作流在画布里作为一个模型使用。",
             workflowReady: "工作流",
-            workflowMissing: "缺少工作流",
+            workflowMissing: "缺少工作流", copySuffix: "副本", duplicateWorkflow: "复制工作流", exportWorkflow: "导出工作流 JSON",
             workflowEmpty: "点击「添加工作流」，粘贴或导入 ComfyUI 导出的 API 格式工作流。",
         },
         comfyWorkflow: {

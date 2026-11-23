@@ -39,6 +39,8 @@ const {
     serializeComfyWorkflow,
     summarizeComfyStats,
     toComfyApiWorkflow,
+    comfyCopyName,
+    comfyWorkflowFileName,
 } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
 const { parseAnthropicEvents, toAnthropicRequest } = await import("../src/services/api/anthropic");
@@ -548,5 +550,18 @@ describe("链接导入渠道", () => {
         expect(second.status).toBe("updated");
         expect(channels).toHaveLength(1);
         expect(channels[0]).toMatchObject({ name: "中转", apiFormat: "anthropic", apiKey: "a" });
+    });
+});
+
+describe("ComfyUI workflow duplicate and export", () => {
+    test("copy names never collide", () => {
+        expect(comfyCopyName("文生图", ["文生图"], "副本")).toBe("文生图 副本");
+        expect(comfyCopyName("文生图", ["文生图", "文生图 副本"], "副本")).toBe("文生图 副本 2");
+        expect(comfyCopyName("文生图", ["文生图", "文生图 副本", "文生图 副本 2"], "副本")).toBe("文生图 副本 3");
+    });
+    test("export file names drop unsafe characters", () => {
+        expect(comfyWorkflowFileName("SDXL 文生图")).toBe("SDXL-文生图.json");
+        expect(comfyWorkflowFileName('a/b:c*"d')).toBe("a-b-c-d.json");
+        expect(comfyWorkflowFileName("///")).toBe("workflow.json");
     });
 });
