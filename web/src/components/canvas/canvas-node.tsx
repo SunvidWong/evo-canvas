@@ -838,10 +838,11 @@ function ImageContent({
                         className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`}
                     />
                 ) : (
-                    <ImageSlotStatus image={primaryImage} nodeId={node.id} />
+                    <ImageSlotStatus image={primaryImage} nodeId={node.id} pendingIds={images.filter((image) => image.status === "loading" && !image.content).map((image) => image.id)} />
                 )}
             </div>
-            {primaryContent ? <BatchPendingBadge node={node} images={images} /> : null}
+            {/* 主图已出图或已失败时，其余还在跑的图片进度显示在底部。 */}
+            {primaryContent || primaryImage?.status === "error" ? <BatchPendingBadge node={node} images={images} /> : null}
             {primaryContent && isBatchRoot && !batchExpanded ? <BatchFailedBadge node={node} images={images} onExpand={onToggleBatch} /> : null}
             {primaryImage?.status === "error" ? <BatchImageFailureActions placement="left" onRetry={() => onRetryBatchImage?.(primaryImage.id)} onDelete={() => onDeleteBatchImage?.(primaryImage.id)} /> : null}
             {primaryImage?.content ? (
@@ -918,20 +919,23 @@ function BatchFailedBadge({ node, images, onExpand }: { node: CanvasNodeData; im
 /** 待生成图片里优先显示正在执行的那张；都在排队时显示排得最靠前的那张。 */
 function BatchPendingProgress({ imageIds, nodeId, theme }: { imageIds: string[]; nodeId: string; theme: NodeContentRendererProps["theme"] }) {
     const progress = useComfyNodeProgress(...imageIds);
+    const active = activeComfyImage(imageIds);
+    return progress && active ? <ComfyProgressLine nodeId={nodeId} imageId={active} theme={theme} /> : null;
+}
+
+/** 一组图片里正在执行的那张；都在排队时取排得最靠前的。ComfyUI 执行顺序不一定和卡片顺序一致。 */
+function activeComfyImage(imageIds: string[]) {
     let active: string | undefined;
     let bestPosition = Infinity;
     for (const id of imageIds) {
         const current = getComfyNodeProgress(id);
-        if (current?.phase === "running") {
-            active = id;
-            break;
-        }
+        if (current?.phase === "running") return id;
         if (current?.phase === "queued" && current.position < bestPosition) {
             bestPosition = current.position;
             active = id;
         }
     }
-    return progress && active ? <ComfyProgressLine nodeId={nodeId} imageId={active} theme={theme} /> : null;
+    return active;
 }
 
 function ExpandedImageCard({ node, image, index, scale, onView, onSetPrimary, onDuplicate, onDownload, onRetry, onDelete }: { node: CanvasNodeData; image: CanvasNodeImage; index: number; scale: number; onView: () => void; onSetPrimary: () => void; onDuplicate: () => void; onDownload: () => void; onRetry: () => void; onDelete: () => void }) {
@@ -1022,16 +1026,19 @@ function BatchImageFailureActions({ placement, onRetry, onDelete }: { placement:
     );
 }
 
-function ImageSlotStatus({ image, nodeId }: { image?: CanvasNodeImage; nodeId?: string }) {
+/** 图片卡片的生成中或失败状态。主图占位传入整组还在生成的图片，显示其中正在执行的那张的进度和预览。 */
+function ImageSlotStatus({ image, nodeId, pendingIds }: { image?: CanvasNodeImage; nodeId?: string; pendingIds?: string[] }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const { t } = useTranslation();
+    useComfyNodeProgress(...(pendingIds || []));
     const failed = image?.status === "error";
+    const progressId = (pendingIds?.length ? activeComfyImage(pendingIds) : undefined) || image?.id;
     return (
         <div className="relative flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: theme.node.fill, color: failed ? theme.node.text : theme.node.activeStroke }}>
-            {!failed ? <ComfyPreviewImage nodeId={nodeId} imageId={image?.id} /> : null}
+            {!failed ? <ComfyPreviewImage nodeId={nodeId} imageId={progressId} /> : null}
             {failed ? <span className="whitespace-pre-line text-xs leading-5">{image.errorDetails || t("canvas.node.failed")}</span> : <div className="relative size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />}
             {!failed ? <span className="relative text-[10px] tracking-[0.2em]">{t("canvas.node.generating")}</span> : null}
-            {!failed ? <ComfyProgressLine nodeId={nodeId} imageId={image?.id} theme={theme} /> : null}
+            {!failed ? <ComfyProgressLine nodeId={nodeId} imageId={progressId} theme={theme} /> : null}
         </div>
     );
 }
