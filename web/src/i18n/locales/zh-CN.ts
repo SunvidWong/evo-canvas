@@ -574,7 +574,7 @@ export default {
             uiFormatNoChannel: "这是 ComfyUI 的普通保存格式，请先填好渠道地址再转换，或在 ComfyUI 里用「导出（API）」导出。",
             convert: "转换为 API 格式",
             convertNeedsChannel: "请先填写 ComfyUI 地址",
-            importHistory: "从最近运行导入",
+            importHistory: "从最近运行导入", pngNoWorkflow: "这张图片里没有 ComfyUI 工作流。只有 ComfyUI 保存的原图才带工作流，经过压缩或转发的图片通常已丢失。",
             historyTitle: "ComfyUI 最近运行过的工作流（点一条填入）",
             historyEmpty: "ComfyUI 还没有运行记录，先在 ComfyUI 里跑一次这个工作流",
             historyUnnamed: "未识别模型",
