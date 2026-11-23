@@ -155,6 +155,18 @@ export function setAgentMemoryEnabled(endpoint: string, token: string, enabled: 
     return fetchAgentJson<{ ok?: boolean }>(endpoint, token, "/agent/memory/settings", jsonPost({ enabled }));
 }
 
+/** Claude Agent 自定义模型接口的摘要；Token 不会回传给网页。 */
+export type ClaudeProviderSummary = { baseUrl: string; model: string; hasToken: boolean };
+
+export function fetchClaudeProvider(endpoint: string, token: string) {
+    return fetchAgentJson<{ ok?: boolean; data?: ClaudeProviderSummary }>(endpoint, token, "/agent/claude/provider");
+}
+
+/** authToken 不传表示保留原值，传空字符串表示清除。 */
+export function updateClaudeProvider(endpoint: string, token: string, patch: { baseUrl?: string; model?: string; authToken?: string }) {
+    return fetchAgentJson<{ ok?: boolean; data?: ClaudeProviderSummary }>(endpoint, token, "/agent/claude/provider", jsonPost(patch));
+}
+
 export type AgentSkillInstallPreview = { id: string; name: string; description: string; source: string; instructions: string; files: AgentSkillFile[]; totalSize: number };
 
 export function previewCodexSkillInstall(endpoint: string, token: string, url: string) {

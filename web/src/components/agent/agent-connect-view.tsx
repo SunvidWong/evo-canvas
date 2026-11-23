@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { App, Button, Input, Tooltip } from "antd";
 import copyToClipboard from "copy-to-clipboard";
 import { Copy, KeyRound, Link2, PlugZap } from "lucide-react";
@@ -20,6 +20,7 @@ export function AgentConnectView({
     onUrlChange,
     onTokenChange,
     onToggleEnabled,
+    children,
 }: {
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     url: string;
@@ -31,6 +32,8 @@ export function AgentConnectView({
     onUrlChange: (value: string) => void;
     onTokenChange: (value: string) => void;
     onToggleEnabled: () => void;
+    /** 显示在连接设置下方的附加设置，例如 Claude 模型接口。 */
+    children?: ReactNode;
 }) {
     const { t } = useTranslation();
     const { message } = App.useApp();
@@ -149,6 +152,7 @@ export function AgentConnectView({
                         ) : null}
                     </div>
                 </div>
+                {children}
             </div>
         </div>
     );

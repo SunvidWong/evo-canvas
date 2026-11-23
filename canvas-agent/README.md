@@ -154,7 +154,8 @@ default_tools_approval_mode = "approve"
 
 - 会话：每轮对话写入 Claude Code 的本地会话记录，历史页只列出 Claude 会话；刷新或重新连接后会续用当前会话。
 - 历史分开：Codex 与 Claude 的会话历史分开保存，切换时各自恢复上次的会话。
-- 模型：暂时使用 Claude Code 的默认模型，不提供模型选择。
+- 模型：默认使用本机 Claude Code 登录的账号和默认模型。
+- 第三方或本地模型：在侧边栏「连接设置」里的「Claude 模型接口」中填写兼容 Anthropic 接口的地址、Token 和模型（例如 DeepSeek、Kimi、智谱的 Anthropic 兼容地址，或本机 LiteLLM 网关）。Canvas Agent 会在启动 Claude Code 时注入 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_MODEL`。换成第三方地址时，会去掉环境里的官方 API Key 和登录令牌，避免官方凭据发给第三方。Token 只保存在本机 `~/.infinite-canvas/canvas-agent.json`（权限 0600），网页只能看到「已设置」，日志里也不写 Token。
 - 暂不支持：Skill、权限模式和模型选择只在 Codex 模式下可用。
 
 如果希望在网页之外直接用 Claude Code 操作画布，可以给 Claude Code 添加同一个 MCP。建议用 user scope，避免 Canvas Agent 从不同目录启动时找不到配置：
