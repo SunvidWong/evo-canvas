@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ClaudeProviderConfig } from "./agent/claude-provider.js";
+import type { CodexProviderConfig } from "./agent/codex-provider.js";
 
 export const DEFAULT_PORT = 17371;
 export const CONFIG_DIR = path.join(os.homedir(), ".infinite-canvas");
@@ -15,7 +16,7 @@ const initializedWorkspaces = new Set<string>();
 export type AgentKind = "codex" | "claude";
 /** inactiveThreadIds 保存切换 Agent 类型前各自的活跃会话，两种 Agent 的会话历史分开显示。 */
 export type SiteWorkspaceConfig = { workspacePath: string; activeThreadId?: string; pinnedThreadIds?: string[]; agentKind?: AgentKind; inactiveThreadIds?: Partial<Record<AgentKind, string>> };
-export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; workspace?: SiteWorkspaceConfig; claudeProvider?: ClaudeProviderConfig };
+export type CanvasAgentConfig = { url: string; token: string; origins?: string[]; workspace?: SiteWorkspaceConfig; claudeProvider?: ClaudeProviderConfig; codexProvider?: CodexProviderConfig };
 
 /** 读取本地 Canvas Agent 配置，不存在时生成默认配置。 */
 export function loadConfig(create = false): CanvasAgentConfig {

@@ -69,6 +69,7 @@ import { AgentHistoryView } from "./agent-history-view";
 import { AgentLogView } from "./agent-log-view";
 import { AgentMemoryView } from "./agent-memory-view";
 import { AgentClaudeProvider } from "./agent-claude-provider";
+import { AgentCodexProvider } from "./agent-codex-provider";
 import { AgentPanelTabs } from "./agent-panel-tabs";
 import { AgentSkillsView } from "./agent-skills-view";
 
@@ -1461,7 +1462,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
                     onTokenChange={(token) => setAgentState({ token, connectError: "" })}
                     onToggleEnabled={toggleAgentConnection}
                 >
-                    {agentKind === "claude" ? <AgentClaudeProvider endpoint={endpoint} token={token} connected={connected} theme={theme} /> : null}
+                    {agentKind === "claude" ? <AgentClaudeProvider endpoint={endpoint} token={token} connected={connected} theme={theme} /> : <AgentCodexProvider />}
                 </AgentConnectView>
             ) : activeTab === "skills" ? (
                 <AgentSkillsView clientId={clientIdRef.current} />
