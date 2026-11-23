@@ -12,6 +12,7 @@ import { messageMetadataStore } from "../agent/message-metadata.js";
 import type { AgentAttachment, AgentPermissionMode } from "../agent/types.js";
 import { AGENT_PROTOCOL_VERSION, CanvasSession } from "../canvas/session.js";
 import { createToken, DEFAULT_PORT, ensureSiteWorkspace, loadConfig, saveConfig, updateSiteWorkspace, type AgentKind, type CanvasAgentConfig } from "../config.js";
+import { claudeProviderSummary, mergeClaudeProvider, type ClaudeProviderPatch } from "../agent/claude-provider.js";
 import { logger } from "../utils/logger.js";
 import { checkVersions } from "../version-check.js";
 import { buildInstallPreview, downloadSkill, parseSkillInstallUrl } from "../skills/install.js";
@@ -224,6 +225,17 @@ export function startHttpServer({ resetToken = false } = {}) {
             }
         }
         res.json({ ok: true, agentKind: kind, workspace: ensureSiteWorkspace(config), conversation: session.conversationStateSnapshot });
+    }));
+    app.get("/agent/claude/provider", (_req, res) => res.json({ ok: true, data: claudeProviderSummary(config.claudeProvider) }));
+    app.post("/agent/claude/provider", route(async (req, res) => {
+        const body = req.body && typeof req.body === "object" ? req.body as ClaudeProviderPatch : {};
+        config.claudeProvider = mergeClaudeProvider(config.claudeProvider, { baseUrl: body.baseUrl, authToken: body.authToken, model: body.model });
+        if (!Object.keys(config.claudeProvider).length) delete config.claudeProvider;
+        saveConfig(config);
+        const data = claudeProviderSummary(config.claudeProvider);
+        // 只记录是否设置了 Token，不写 Token 本身。
+        logger.info("Claude provider updated", data);
+        res.json({ ok: true, data });
     }));
     app.get("/agent/codex/skills", route(async (req, res) => {
         const workspace = ensureSiteWorkspace(config);
@@ -576,6 +588,7 @@ export function startHttpServer({ resetToken = false } = {}) {
             attachments,
             callTool: (name, toolInput) => session.callTool(name, toolInput),
             emit: turnEmit,
+            provider: config.claudeProvider,
             onFinish: () => {
                 logger.info("Claude turn finished", { threadId, turnId });
                 session.clearTurnAttachments(clientId);

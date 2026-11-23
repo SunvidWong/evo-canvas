@@ -4,6 +4,7 @@ import { createSdkMcpServer, deleteSession, getSessionInfo, getSessionMessages, 
 
 import { toolDescriptions, toolInputSchemas, toolNames } from "../canvas/schemas.js";
 import { AGENT_PROMPT } from "../config.js";
+import { claudeProviderEnv, type ClaudeProviderConfig } from "./claude-provider.js";
 import { logger } from "../utils/logger.js";
 import { errorMessage } from "../utils/value.js";
 import { codexEventHistory } from "./codex-event-history.js";
@@ -33,6 +34,8 @@ export type ClaudeTurnOptions = {
     /** 执行画布工具；与 Codex 走同一个 CanvasSession.callTool。 */
     callTool: (name: string, input: Record<string, unknown>) => Promise<unknown>;
     emit: AgentEmit;
+    /** 自定义模型接口；不填时用本机 Claude 登录的账号。 */
+    provider?: ClaudeProviderConfig;
     onFinish?: () => void;
 };
 
@@ -52,6 +55,7 @@ export async function runClaudeTurn(options: ClaudeTurnOptions) {
     mapper.start();
     try {
         const exists = Boolean(await getSessionInfo(threadId, { dir: cwd }).catch(() => undefined));
+        const env = claudeProviderEnv(options.provider);
         const stream = query({
             prompt: userInput(options),
             options: {
@@ -66,6 +70,8 @@ export async function runClaudeTurn(options: ClaudeTurnOptions) {
                 allowedTools: [`${MCP_PREFIX}*`],
                 systemPrompt: { type: "preset", preset: "claude_code", append: AGENT_PROMPT },
                 stderr: (text) => emit("agent_log", { text }),
+                ...(env ? { env } : {}),
+                ...(options.provider?.model ? { model: options.provider.model } : {}),
             },
         });
         for await (const message of stream) mapper.handle(message);

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [新增] Claude Agent 可改用第三方或本地模型：连接设置里填写兼容 Anthropic 接口的地址、Token 和模型即可；Token 只保存在本机，切到第三方地址时不会带上官方凭据。
 + [新增] 通过链接导入渠道时支持 `apiFormat`（或 `protocol`）和 `name` 参数；不指定协议时按厂商预设自动识别。
 + [新增] Docker 镜像支持 `COMFYUI_URL` 环境变量：设置后 `/comfyui/` 同源转发到局域网的 ComfyUI，渠道地址填 `/comfyui` 即可，不用再给 ComfyUI 开跨域；本地开发同样支持。
 + [调整] 拉取模型时能识别更多国内外生图、视频和语音模型（通义万相、混元、可灵、即梦、Seedance、CogVideoX、CosyVoice 等），名字里写明 t2i、i2v、video、image 的按用途优先判断。
