@@ -49,7 +49,13 @@ export function buildImageGenerationMetadata(type: CanvasImageGenerationType, co
         ...(config.background ? { background: config.background } : {}),
         count,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
+        ...comfyOverrideMetadata(config),
     };
+}
+
+/** ComfyUI 单次覆盖的步数、CFG、种子随生成结果保存，重试时按同样的参数重跑；没填的不写。 */
+export function comfyOverrideMetadata(source: Pick<CanvasNodeMetadata, "comfySteps" | "comfyCfg" | "comfySeed"> | undefined): Pick<CanvasNodeMetadata, "comfySteps" | "comfyCfg" | "comfySeed"> {
+    return Object.fromEntries((["comfySteps", "comfyCfg", "comfySeed"] as const).filter((key) => source?.[key]).map((key) => [key, source?.[key]]));
 }
 
 export function buildAudioGenerationMetadata(config: AiConfig): CanvasNodeMetadata {

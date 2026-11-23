@@ -62,6 +62,10 @@ export type AiConfig = {
     reasoningEffort: ReasoningEffort;
     /** 当前请求所用渠道的回复长度上限，由 resolveModelRequestConfig 带上。 */
     maxTokens?: number;
+    /** ComfyUI 单次覆盖的步数、CFG、种子；空字符串或不填表示用工作流里的值。 */
+    comfySteps?: string;
+    comfyCfg?: string;
+    comfySeed?: string;
     models: string[];
     quality: string;
     size: string;
@@ -201,6 +205,11 @@ function findChannelModel(config: AiConfig, value: string): { channel: ModelChan
     const channel = decoded ? config.channels.find((item) => item.id === decoded.channelId) : config.channels.find((item) => item.models.some((model) => model.name === name));
     const model = channel?.models.find((item) => item.name === name);
     return channel && model ? { channel, model } : null;
+}
+
+/** 这个模型是不是 ComfyUI 渠道的工作流。 */
+export function isComfyModel(config: AiConfig, value: string) {
+    return findChannelModel(config, value)?.channel.apiFormat === "comfyui";
 }
 
 export function modelCapabilityOf(config: AiConfig, value: string): ModelCapability | undefined {

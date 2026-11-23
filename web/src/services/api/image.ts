@@ -4,7 +4,7 @@ import i18n from "@/i18n";
 import { apiFormatName, buildApiUrl, resolveModelRequestConfig, resolveModelScript, resolveModelWorkflow, withLocalProxy, type AiConfig, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { fetchAnthropicModels, requestAnthropicMessage } from "./anthropic";
-import { generateComfyImages } from "./comfyui";
+import { generateComfyImages, parseComfyOverrides } from "./comfyui";
 import { openAICompatibleHeaders, requestChatCompletion } from "./openai-chat";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -339,7 +339,7 @@ async function requestProtocolImages(config: AiConfig, requestConfig: AiConfig, 
         // 局部重绘只传原图（第一张）和蒙版，不传蓝色标注图，提示词用用户原话。
         const inpaint = options?.inpaint && references.length ? options.inpaint : undefined;
         const refs = await Promise.all((inpaint ? references.slice(0, 1) : references).map((image) => imageToDataUrl(image)));
-        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, inpaint ? inpaint.prompt : prompt), width, height, count, references: refs, mask: inpaint?.mask }, { signal: options?.signal });
+        const images = await generateComfyImages(requestConfig, workflow, { prompt: withSystemPrompt(requestConfig, inpaint ? inpaint.prompt : prompt), width, height, count, references: refs, mask: inpaint?.mask, ...parseComfyOverrides(config) }, { signal: options?.signal });
         return images.map((dataUrl) => ({ id: nanoid(), dataUrl }));
     } catch (error) {
         throw new Error(readAxiosError(error, apiText("requestFailed")));
