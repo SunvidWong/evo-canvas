@@ -1814,14 +1814,25 @@ function InfiniteCanvasPage() {
     const handleConfigNodeChange = useCallback((nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => {
         setNodes((prev) => prev.map((node) => (node.id === nodeId ? applyNodeConfigPatch(node, patch) : node)));
         // 在节点里选的模型和张数记为默认值，下次新建同类节点直接沿用。
-        const type = nodesRef.current.find((node) => node.id === nodeId)?.type;
+        // 配置节点按它当前的生成模式归类；文本模式不改任何默认值。
+        const target = nodesRef.current.find((node) => node.id === nodeId);
+        const kind =
+            target?.type === CanvasNodeType.Config
+                ? (patch?.generationMode ?? target.metadata?.generationMode ?? "image")
+                : target?.type === CanvasNodeType.Image
+                  ? "image"
+                  : target?.type === CanvasNodeType.Video
+                    ? "video"
+                    : target?.type === CanvasNodeType.Audio
+                      ? "audio"
+                      : undefined;
         const { updateConfig } = useConfigStore.getState();
         if (patch?.model) {
-            if (type === CanvasNodeType.Image || type === CanvasNodeType.Config) updateConfig("imageModel", patch.model);
-            else if (type === CanvasNodeType.Video) updateConfig("videoModel", patch.model);
-            else if (type === CanvasNodeType.Audio) updateConfig("audioModel", patch.model);
+            if (kind === "image") updateConfig("imageModel", patch.model);
+            else if (kind === "video") updateConfig("videoModel", patch.model);
+            else if (kind === "audio") updateConfig("audioModel", patch.model);
         }
-        if (patch?.count && (type === CanvasNodeType.Image || type === CanvasNodeType.Config)) updateConfig("canvasImageCount", String(patch.count));
+        if (patch?.count && kind === "image") updateConfig("canvasImageCount", String(patch.count));
     }, []);
 
     const downloadNodeImage = useCallback((node: CanvasNodeData) => {
