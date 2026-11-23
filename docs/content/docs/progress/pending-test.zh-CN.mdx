@@ -7,6 +7,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 - Claude Agent 使用第三方或本地模型：把 Agent 切到 Claude，打开连接设置，在「Claude 模型接口」里填兼容 Anthropic 接口的地址（如 DeepSeek、Kimi、智谱的 Anthropic 兼容地址，或本机 LiteLLM）、Token 和模型，然后保存。下一条消息应走这个服务。Token 输入框只提示「已保存」，不回显 Token 本身。点「恢复使用官方账号」后三项都清空，下一条消息改用本机 Claude 登录。非 http(s) 地址会被拒绝。
 - 链接导入带协议：用 `?baseUrl=...&apiKey=...` 打开站点时，按厂商预设推断协议和名称（例如 `https://api.deepseek.com/v1` 会新建为 OpenAI 兼容协议的「DeepSeek」）。可以用 `apiFormat`（或 `protocol`）指定协议，取值为 `openai`、`openai-chat`、`anthropic`、`gemini`、`comfyui`，未知值会被忽略。`name` 用来指定新渠道的名称。导入已存在的地址时，更新 Key 和协议，名称保持不变。导入后这些参数都会从地址栏移除，其他参数保留。
+- ComfyUI 版本和显卡：ComfyUI 渠道点「测试连接」成功后，第二行应显示「ComfyUI 版本 · 显卡型号（显存可用 x / y GB）」，型号不带 cuda:0 前缀和分配器后缀。只有 CPU 时显示 cpu。
 - ComfyUI 音频工作流：导入一个以 SaveAudio 结尾的工作流（例如 ACE-Step 文生音乐），用途选「音频」，在参数映射里把「提示词」指到文本节点。在画布音频节点里选这个模型生成，应返回可播放的音频；从最近运行导入这类工作流时，用途应自动为「音频」。
 - ComfyUI 参考图上传：带参考图生成后，图片应出现在 ComfyUI 的 input/infinite-canvas 目录，LoadImage 里显示 infinite-canvas/canvas-xxx.png。只有一个 LoadImage 时带 3 张参考图生成，应提示「只用了前 1 张（共 3 张）」，并且只上传 1 张。工作流没有 LoadImage 时带参考图，应提示参考图没有使用，生成照常进行。
 - ComfyUI 已保存工作流导入和格式转换：添加工作流时点「从已保存的工作流导入」，应列出 ComfyUI workflows 目录（含子目录）里的 .json 文件。点 krea2 文生图后，编辑框里是转换好的 API 格式，名称填成文件名，有视频输出时用途自动切到「视频」。用同一个工作流在 ComfyUI 里「导出（API）」，对比两边的节点和参数应一致（种子数值可能不同）。用了没安装的自定义节点时，应列出缺少的节点名，不填入。直接粘贴普通保存格式会出现「转换为 API 格式」提示，点了能转换；导入普通格式文件时自动转换。带子图的工作流提示改用「导出（API）」。

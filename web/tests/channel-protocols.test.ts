@@ -37,6 +37,7 @@ const {
     parseComfySettings,
     parseComfyWorkflow,
     serializeComfyWorkflow,
+    summarizeComfyStats,
     toComfyApiWorkflow,
 } = await import("../src/services/api/comfyui");
 const { parseChatCompletionEvents } = await import("../src/services/api/openai-chat");
@@ -454,6 +455,25 @@ describe("ComfyUI 工作流", () => {
         }
         const [item] = parseComfyHistoryWorkflows({ x: { prompt: [0, "x", { "20": { class_type: "SaveAudio", inputs: {} } }], outputs: { "20": { audio: [{ filename: "a.mp3", type: "output" }] } } } });
         expect(item.capability).toBe("audio");
+    });
+
+    test("整理 ComfyUI 版本和显卡信息", () => {
+        expect(
+            summarizeComfyStats({
+                system: { comfyui_version: "0.3.68", python_version: "3.12" },
+                devices: [
+                    { name: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", type: "cuda", vram_total: 25757220864, vram_free: 21474836480 },
+                    { name: "cpu", type: "cpu", vram_total: 0, vram_free: 0 },
+                ],
+            }),
+        ).toEqual({
+            version: "0.3.68",
+            devices: [
+                { name: "NVIDIA GeForce RTX 4090", vramTotalGb: 24, vramFreeGb: 20 },
+                { name: "cpu", vramTotalGb: undefined, vramFreeGb: undefined },
+            ],
+        });
+        expect(summarizeComfyStats(null)).toEqual({ version: undefined, devices: [] });
     });
 
     test("只接受 API 格式工作流", () => {

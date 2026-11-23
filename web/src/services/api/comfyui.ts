@@ -583,7 +583,29 @@ export async function generateComfyAudio(config: Pick<AiConfig, "baseUrl" | "api
 
 /** 测试 ComfyUI 是否可连通。 */
 export async function checkComfyConnection(config: Pick<AiConfig, "baseUrl" | "apiKey">) {
-    await comfyFetch<unknown>(config, "/system_stats");
+    return summarizeComfyStats(await comfyFetch<unknown>(config, "/system_stats"));
+}
+
+export type ComfySystemSummary = { version?: string; devices: Array<{ name: string; vramTotalGb?: number; vramFreeGb?: number }> };
+const GB = 1024 ** 3;
+
+/** 整理 /system_stats：ComfyUI 版本和每块显卡的名称、显存，用于「测试连接」里展示。 */
+export function summarizeComfyStats(stats: unknown): ComfySystemSummary {
+    const record = (stats && typeof stats === "object" ? stats : {}) as { system?: { comfyui_version?: unknown }; devices?: unknown };
+    const version = typeof record.system?.comfyui_version === "string" ? record.system.comfyui_version : undefined;
+    const devices = (Array.isArray(record.devices) ? record.devices : []).flatMap((device) => {
+        if (!device || typeof device !== "object") return [];
+        const item = device as { name?: unknown; type?: unknown; vram_total?: unknown; vram_free?: unknown };
+        // 原始名称形如「cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync」，只保留显卡型号。
+        const name = String(item.name || item.type || "")
+            .replace(/^\w+:\d+\s+/, "")
+            .replace(/\s+:\s+.*$/, "")
+            .trim();
+        if (!name) return [];
+        const gb = (value: unknown) => (typeof value === "number" && value > 0 ? Math.round((value / GB) * 10) / 10 : undefined);
+        return [{ name, vramTotalGb: gb(item.vram_total), vramFreeGb: gb(item.vram_free) }];
+    });
+    return { version, devices };
 }
 
 export type ComfyHistoryWorkflow = {

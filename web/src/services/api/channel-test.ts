@@ -1,9 +1,9 @@
 import i18n from "@/i18n";
 import { channelNeedsApiKey, type ModelChannel } from "@/stores/use-config-store";
-import { checkComfyConnection } from "./comfyui";
+import { checkComfyConnection, type ComfySystemSummary } from "./comfyui";
 import { fetchChannelModels } from "./image";
 
-export type ChannelTestResult = { ok: true; elapsedMs: number; modelCount?: number } | { ok: false; elapsedMs: number; message: string; network: boolean };
+export type ChannelTestResult = { ok: true; elapsedMs: number; modelCount?: number; comfy?: ComfySystemSummary } | { ok: false; elapsedMs: number; message: string; network: boolean };
 
 const apiText = (key: string, options?: Record<string, unknown>) => i18n.t(`apiErrors.${key}`, options);
 const NETWORK_ERROR = /failed to fetch|network ?error|load failed|err_network|err_connection/i;
@@ -21,8 +21,8 @@ export async function testChannelConnection(channel: ModelChannel, now: () => nu
     if (channelNeedsApiKey(channel) && !channel.apiKey.trim()) return { ok: false, elapsedMs: 0, message: apiText("apiKeyRequired"), network: false };
     try {
         if (channel.apiFormat === "comfyui") {
-            await checkComfyConnection(channel);
-            return { ok: true, elapsedMs: elapsed() };
+            const comfy = await checkComfyConnection(channel);
+            return { ok: true, elapsedMs: elapsed(), comfy };
         }
         const models = await fetchChannelModels(channel);
         return { ok: true, elapsedMs: elapsed(), modelCount: models.length };
