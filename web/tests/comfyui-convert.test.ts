@@ -31,7 +31,31 @@ const objectInfo: ComfyObjectInfo = {
     UNETLoader: { input: { required: { unet_name: [["flux1-dev.safetensors"]], weight_dtype: [["default", "fp8_e4m3fn"]] } } },
     DualCLIPLoader: { input: { required: { clip_name1: [["t5xxl.safetensors"]], clip_name2: [["clip_l.safetensors"]], type: [["flux"]] }, optional: { device: [["default", "cpu"]] } } },
     RandomNoise: { input: { required: { noise_seed: ["INT", { control_after_generate: true }] } } },
-    VHS_VideoCombine: { input: { required: { images: ["IMAGE"], frame_rate: ["FLOAT"], loop_count: ["INT"], filename_prefix: ["STRING"], format: [["image/gif", "video/h264-mp4"]] }, optional: { audio: ["AUDIO"] } } },
+    VHS_VideoCombine: {
+        input: {
+            required: {
+                images: ["IMAGE"],
+                frame_rate: ["FLOAT"],
+                loop_count: ["INT"],
+                filename_prefix: ["STRING"],
+                format: [
+                    ["image/gif", "video/h264-mp4"],
+                    {
+                        formats: {
+                            "video/h264-mp4": [
+                                ["pix_fmt", ["yuv420p", "yuv420p10le"]],
+                                ["crf", "INT", { default: 19 }],
+                                ["save_metadata", "BOOLEAN", { default: true }],
+                            ],
+                        },
+                    },
+                ],
+            },
+            optional: { audio: ["AUDIO"] },
+        },
+    },
+    TextSampler: { input: { required: { text: ["STRING", { forceInput: true }], steps: ["INT"], denoise: ["FLOAT"] } } },
+    PrimitiveText: { input: { required: { value: ["STRING"] } } },
 };
 
 /** SDXL 文生图：ComfyUI 默认工作流加一个 Note。 */
@@ -194,7 +218,7 @@ describe("ComfyUI 普通保存格式转 API 格式", () => {
                         { name: "images", type: "IMAGE", link: null },
                         { name: "audio", type: "AUDIO", link: null },
                     ],
-                    widgets_values: { frame_rate: 8, loop_count: 0, filename_prefix: "clip", format: "video/h264-mp4", pingpong: false, videopreview: { hidden: false } },
+                    widgets_values: { frame_rate: 8, loop_count: 0, filename_prefix: "clip", format: "video/h264-mp4", pix_fmt: "yuv420p10le", crf: 35, save_metadata: true, videopreview: { hidden: false } },
                 },
             ],
             links: [],
@@ -203,7 +227,21 @@ describe("ComfyUI 普通保存格式转 API 格式", () => {
         expect(workflow["1"].inputs).toEqual({ unet_name: "flux1-dev.safetensors", weight_dtype: "fp8_e4m3fn" });
         expect(workflow["2"].inputs).toEqual({ clip_name1: "t5xxl.safetensors", clip_name2: "clip_l.safetensors", type: "flux", device: "default" });
         expect(workflow["3"].inputs).toEqual({ noise_seed: 123 });
-        expect(workflow["4"].inputs).toEqual({ frame_rate: 8, loop_count: 0, filename_prefix: "clip", format: "video/h264-mp4" });
+        expect(workflow["4"].inputs).toEqual({ frame_rate: 8, loop_count: 0, filename_prefix: "clip", format: "video/h264-mp4", pix_fmt: "yuv420p10le", crf: 35, save_metadata: true });
+    });
+
+    test("forceInput 的参数不占 widgets_values 的位置", () => {
+        const { workflow } = convertComfyUiWorkflow(
+            {
+                nodes: [
+                    { id: 1, type: "PrimitiveText", widgets_values: ["hello"] },
+                    { id: 2, type: "TextSampler", inputs: [{ name: "text", type: "STRING", link: 1 }], widgets_values: [20, 0.7] },
+                ],
+                links: [[1, 1, 0, 2, 0, "STRING"]],
+            },
+            objectInfo,
+        );
+        expect(workflow["2"].inputs).toEqual({ text: ["1", 0], steps: 20, denoise: 0.7 });
     });
 
     test("列出没安装的节点，子图直接报错", () => {

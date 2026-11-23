@@ -38,14 +38,28 @@ function inputNames(definition: ComfyNodeDefinition) {
     return [...required, ...optional].map((name) => ({ name, spec: definition.input?.required?.[name] || definition.input?.optional?.[name] }));
 }
 
+/** 所选格式额外声明的参数名：format 输入的选项里带 formats: { 格式: [[参数名, 类型, …], …] }。 */
+function formatWidgetNames(definition: ComfyNodeDefinition, values: Record<string, unknown>) {
+    return inputNames(definition).flatMap(({ name, spec }) => {
+        const formats = spec?.[1]?.formats;
+        const selected = values[name];
+        if (!formats || typeof formats !== "object" || typeof selected !== "string") return [];
+        const extra = (formats as Record<string, unknown>)[selected];
+        return Array.isArray(extra) ? extra.map((item) => (Array.isArray(item) && typeof item[0] === "string" ? item[0] : "")).filter(Boolean) : [];
+    });
+}
+
 /** 按节点定义把 widgets_values 对应到参数名；seed 后面的「生成后控制」值要跳过。 */
 function widgetValues(node: UiNode, definition: ComfyNodeDefinition) {
     const result: Record<string, unknown> = {};
     const values = node.widgets_values;
     if (!values) return result;
-    const widgets = inputNames(definition).filter((item) => isWidgetInput(item.spec));
+    // forceInput 的参数只能连线，新版前端不会把它写进 widgets_values，按位置解码时要跳过。
+    const widgets = inputNames(definition).filter((item) => isWidgetInput(item.spec) && !item.spec?.[1]?.forceInput);
     if (!Array.isArray(values)) {
         for (const { name } of widgets) if (name in values) result[name] = values[name];
+        // VHS 这类节点按所选格式追加参数（例如 crf、pix_fmt），定义写在 format 的 formats 里。
+        for (const name of formatWidgetNames(definition, values)) if (name in values) result[name] = values[name];
         return result;
     }
     let index = 0;
