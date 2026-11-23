@@ -2450,6 +2450,8 @@ function InfiniteCanvasPage() {
                     const parentConfig = NODE_DEFAULT_SIZE[isConfigNode ? CanvasNodeType.Config : isImageNode ? CanvasNodeType.Image : CanvasNodeType.Text];
                     const imageConfig = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
                     const parentPosition = sourceNode?.position || { x: 0, y: 0 };
+                    // 图片和配置节点保持原尺寸；其他节点下面会被改成默认尺寸的文本节点，按改后的宽度摆放结果。
+                    const sourceWidthAfterUpdate = isImageNode || isConfigNode ? sourceNode?.width || parentConfig.width : parentConfig.width;
                     const rootId = reuseImageNode ? nodeId : nanoid();
                     const imageIds = Array.from({ length: count }, () => nanoid());
                     pendingChildIds = [rootId];
@@ -2459,7 +2461,7 @@ function InfiniteCanvasPage() {
                         title: effectivePrompt.slice(0, 32) || "Generated Image",
                         position: reuseImageNode
                             ? { x: parentPosition.x, y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2 }
-                            : placeNewNode({ x: parentPosition.x + (sourceNode?.width || parentConfig.width) + 96, y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2 }, imageConfig.width, imageConfig.height),
+                            : placeNewNode({ x: parentPosition.x + sourceWidthAfterUpdate + 96, y: parentPosition.y + parentConfig.height / 2 - imageConfig.height / 2 }, imageConfig.width, imageConfig.height),
                         width: reuseImageNode ? sourceNode?.width || imageConfig.width : imageConfig.width,
                         height: reuseImageNode ? sourceNode?.height || imageConfig.height : imageConfig.height,
                         metadata: {
